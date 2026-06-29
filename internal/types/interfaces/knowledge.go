@@ -248,4 +248,8 @@ type KnowledgeRepository interface {
 	SearchKnowledgeInScopes(ctx context.Context, scopes []types.KnowledgeSearchScope, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, error)
 	// ListIDsByTagID returns all knowledge IDs that have the specified tag ID.
 	ListIDsByTagID(ctx context.Context, tenantID uint64, kbID, tagID string) ([]string, error)
+	// FindKnowledgeByDocVersion searches for existing knowledge documents matching
+	// the given filename pattern (e.g., "KBA-xxx_REV_%") within a specific knowledge base.
+	// Used by the version management logic to detect older/newer revisions of the same document.
+	FindKnowledgeByDocVersion(ctx context.Context, tenantID uint64, kbID string, fileNamePattern string) ([]*types.Knowledge, error)
 }

@@ -721,3 +721,25 @@ func (r *knowledgeRepository) ListIDsByTagID(
 		Pluck("id", &ids).Error
 	return ids, err
 }
+
+// FindKnowledgeByDocVersion searches for existing knowledge documents whose file_name
+// matches the given LIKE pattern (e.g., "KBA-260514191553_REV_%") within a specific
+// knowledge base. Only returns non-failed, non-deleted documents.
+// Used by version management to detect older/newer revisions of the same document.
+func (r *knowledgeRepository) FindKnowledgeByDocVersion(
+	ctx context.Context,
+	tenantID uint64,
+	kbID string,
+	fileNamePattern string,
+) ([]*types.Knowledge, error) {
+	var knowledges []*types.Knowledge
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND knowledge_base_id = ?", tenantID, kbID).
+		Where("file_name LIKE ?", fileNamePattern).
+		Where("parse_status <> ?", "failed").
+		Find(&knowledges).Error
+	if err != nil {
+		return nil, err
+	}
+	return knowledges, nil
+}

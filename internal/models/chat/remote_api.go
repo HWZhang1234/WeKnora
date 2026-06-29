@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -68,6 +69,12 @@ func NewRemoteAPIChat(chatConfig *ChatConfig) (*RemoteAPIChat, error) {
 		if baseURL := chatConfig.BaseURL; baseURL != "" {
 			config.BaseURL = baseURL
 		}
+	}
+
+	// 如果设置了 WEKNORA_LLM_INSECURE_SKIP_VERIFY=true，则跳过 TLS 证书验证。
+	// 用于企业内网服务使用私有 CA 签发证书的场景。
+	if strings.EqualFold(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY"), "true") {
+		config.HTTPClient = rawHTTPClient
 	}
 
 	// 如果指定了 CustomHeaders，则给 SDK 使用的 HTTPClient 挂一层 RoundTripper，

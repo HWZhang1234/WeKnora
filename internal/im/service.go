@@ -2383,7 +2383,7 @@ var supportedKBFileExts = map[string]bool{
 	"pdf": true, "txt": true, "docx": true, "doc": true,
 	"md": true, "markdown": true,
 	"png": true, "jpg": true, "jpeg": true, "gif": true,
-	"csv": true, "xlsx": true, "xls": true,
+	"csv": true, "xlsx": true, "xlsm": true, "xls": true,
 	"pptx": true, "ppt": true,
 }
 
@@ -2862,7 +2862,7 @@ func fileTypeName(filename string) string {
 		return "图片"
 	case "csv":
 		return "CSV 表格"
-	case "xls", "xlsx":
+	case "xls", "xlsx", "xlsm":
 		return "Excel 表格"
 	case "ppt", "pptx":
 		return "PPT 演示文稿"

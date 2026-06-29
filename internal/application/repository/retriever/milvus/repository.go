@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -18,6 +19,10 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
+
+// alphanumTokenRe extracts alphanumeric tokens (project codes like IS380, PD2571, O_AA634_CT)
+// that are at least 3 characters long. These tokens often fail BM25 tokenization.
+var alphanumTokenRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_.-]{2,}[A-Za-z0-9]|[A-Za-z0-9_]{3,}`)
 
 const (
 	envMilvusCollection   = "MILVUS_COLLECTION"
@@ -779,12 +784,126 @@ func (m *milvusRepository) KeywordsRetrieve(ctx context.Context,
 	}
 
 	if len(allResults) == 0 {
+		log.Warnf("[Milvus] No keyword matches found for query: %s, trying text_match fallback", params.Query)
+		fallbackResults, fbErr := m.textMatchFallback(ctx, params)
+		if fbErr != nil {
+			log.Warnf("[Milvus] text_match fallback failed: %v", fbErr)
+		} else if len(fallbackResults) > 0 {
+			log.Infof("[Milvus] text_match fallback found %d results", len(fallbackResults))
+			allResults = fallbackResults
+		}
+	}
+
+	if len(allResults) == 0 {
 		log.Warnf("[Milvus] No keyword matches found for query: %s", params.Query)
 	} else {
 		log.Infof("[Milvus] Keywords retrieval found %d results", len(allResults))
 	}
 
 	return buildRetrieveResult(allResults, types.KeywordsRetrieverType), nil
+}
+
+// textMatchFallback performs exact text matching when BM25 keyword search returns no results.
+// It extracts alphanumeric tokens (e.g., project codes like IS380, PD2571) from the query
+// and uses Milvus text_match() filter for precise substring matching.
+func (m *milvusRepository) textMatchFallback(ctx context.Context, params types.RetrieveParams) ([]*types.IndexWithScore, error) {
+	log := logger.GetLogger(ctx)
+
+	// Extract alphanumeric tokens from query (project codes, model numbers, etc.)
+	tokens := alphanumTokenRe.FindAllString(params.Query, -1)
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
+	// Deduplicate and filter common words
+	seen := make(map[string]bool)
+	var searchTokens []string
+	for _, t := range tokens {
+		lower := strings.ToLower(t)
+		if seen[lower] {
+			continue
+		}
+		seen[lower] = true
+		// Skip very common Chinese-English stopwords that might match too broadly
+		if lower == "the" || lower == "and" || lower == "for" || lower == "not" || lower == "are" || lower == "was" {
+			continue
+		}
+		searchTokens = append(searchTokens, t)
+	}
+	if len(searchTokens) == 0 {
+		return nil, nil
+	}
+
+	log.Infof("[Milvus] text_match fallback: extracted tokens %v from query: %s", searchTokens, params.Query)
+
+	// Get all matching collections
+	collections, err := m.client.ListCollections(ctx, client.NewListCollectionOption())
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+
+	// Build base filter expression
+	baseExpr, baseParams, err := m.getBaseFilterForQuery(params)
+	if err != nil {
+		return nil, fmt.Errorf("build base filter: %w", err)
+	}
+
+	var allResults []*types.IndexWithScore
+
+	for _, collectionName := range collections {
+		if len(collectionName) <= len(m.collectionBaseName) ||
+			collectionName[:len(m.collectionBaseName)] != m.collectionBaseName {
+			continue
+		}
+
+		// Build text_match filter for each token (OR logic: any token match is relevant)
+		var textMatchClauses []string
+		for _, token := range searchTokens {
+			// text_match uses the analyzer, so it should match the token in the content
+			textMatchClauses = append(textMatchClauses, fmt.Sprintf("text_match(%s, %q)", fieldContent, token))
+		}
+		textMatchExpr := strings.Join(textMatchClauses, " || ")
+
+		// Combine with base filter
+		var fullExpr string
+		if baseExpr != "" {
+			fullExpr = fmt.Sprintf("(%s) && (%s)", baseExpr, textMatchExpr)
+		} else {
+			fullExpr = textMatchExpr
+		}
+
+		queryOpt := client.NewQueryOption(collectionName)
+		queryOpt.WithFilter(fullExpr)
+		for k, v := range baseParams {
+			queryOpt.WithTemplateParam(k, v)
+		}
+		queryOpt.WithOutputFields("*")
+		queryOpt.WithLimit(params.TopK)
+
+		resultSet, err := m.client.Query(ctx, queryOpt)
+		if err != nil {
+			log.Warnf("[Milvus] text_match query failed on collection %s: %v", collectionName, err)
+			continue
+		}
+
+		embeddings, _, err := convertResultSet([]client.ResultSet{resultSet})
+		if err != nil {
+			log.Warnf("[Milvus] Failed to convert text_match results: %v", err)
+			continue
+		}
+
+		for _, emb := range embeddings {
+			emb.Score = 1.0 // Give high score to exact matches
+			allResults = append(allResults, fromMilvusVectorEmbedding(emb.ID, emb, types.MatchTypeKeywords))
+		}
+	}
+
+	// Limit to topK
+	if len(allResults) > params.TopK {
+		allResults = allResults[:params.TopK]
+	}
+
+	return allResults, nil
 }
 
 // CopyIndices copies index data from source knowledge base to target knowledge base

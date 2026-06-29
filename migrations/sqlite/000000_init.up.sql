@@ -105,6 +105,10 @@ CREATE TABLE IF NOT EXISTS knowledges (
     summary_status VARCHAR(32) DEFAULT 'none',
     last_faq_import_result TEXT DEFAULT NULL,
     channel VARCHAR(50) NOT NULL DEFAULT 'web',
+    -- Counts enrichment subtasks (summary, question gen, graph extract)
+    -- still in flight while parse_status='finalizing'. Mirrors migration
+    -- 000056 from the Postgres side.
+    pending_subtasks_count INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME,
@@ -225,6 +229,9 @@ CREATE TABLE IF NOT EXISTS users (
     tenant_id INTEGER,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     can_access_all_tenants BOOLEAN NOT NULL DEFAULT 0,
+    -- System-level administrator flag, independent of tenant-scoped roles.
+    -- Mirrors migration 000053 from the Postgres side.
+    is_system_admin BOOLEAN NOT NULL DEFAULT 0,
     -- Per-user JSON preferences (memory toggle, future UI knobs).
     -- SQLite has no JSONB; store as TEXT and let GORM (de)serialise via
     -- the driver.Valuer / sql.Scanner methods on types.UserPreferences.
@@ -238,6 +245,28 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_users_is_system_admin ON users(is_system_admin);
+
+-- system_settings — sqlite mirror of migration 000053. Platform-wide
+-- runtime tunables gated by the system admin role. SQLite has no JSONB,
+-- so `value` is TEXT and `value_type` tells the service layer how to
+-- parse it.
+CREATE TABLE IF NOT EXISTS system_settings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    key              VARCHAR(128) NOT NULL UNIQUE,
+    value            TEXT NOT NULL,
+    value_type       VARCHAR(16)  NOT NULL,
+    category         VARCHAR(32)  NOT NULL,
+    description      TEXT NOT NULL DEFAULT '',
+    is_secret        BOOLEAN NOT NULL DEFAULT 0,
+    requires_restart BOOLEAN NOT NULL DEFAULT 0,
+    last_modified_by VARCHAR(36) NOT NULL DEFAULT '',
+    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_settings_category
+    ON system_settings (category);
 
 CREATE TABLE IF NOT EXISTS auth_tokens (
     id VARCHAR(36) PRIMARY KEY,
@@ -337,17 +366,23 @@ CREATE TABLE IF NOT EXISTS user_kb_pins (
 CREATE INDEX IF NOT EXISTS idx_user_kb_pins_user_tenant_pinned_at
     ON user_kb_pins(tenant_id, user_id, pinned_at DESC);
 
--- tenant_invitations — sqlite mirror of migration 000048. SQLite supports
--- partial unique indexes too, so the same "one pending per (tenant,
--- invitee)" guard can be applied verbatim.
+-- tenant_invitations — sqlite mirror of migration 000048 + 000054.
+-- The 000054 columns (token, accepted_count) and the relaxed pending
+-- index that allows multi-share-link rows are folded in here for the
+-- consolidated init.
 CREATE TABLE IF NOT EXISTS tenant_invitations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL,
-    invitee_user_id VARCHAR(36) NOT NULL,
+    invitee_user_id VARCHAR(36) NOT NULL DEFAULT '',
     invited_by VARCHAR(36),
     role VARCHAR(20) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     message VARCHAR(500),
+    -- Plaintext registration token for share-link invitations (000054).
+    -- Empty string for per-user invitations.
+    token VARCHAR(64) NOT NULL DEFAULT '',
+    -- Number of users that completed registration via this row.
+    accepted_count INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
     responded_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -356,11 +391,48 @@ CREATE TABLE IF NOT EXISTS tenant_invitations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_invitations_unique_pending
     ON tenant_invitations(tenant_id, invitee_user_id)
-    WHERE status = 'pending' AND deleted_at IS NULL;
+    WHERE status = 'pending' AND deleted_at IS NULL AND invitee_user_id <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_invitations_token
+    ON tenant_invitations(token)
+    WHERE token <> '' AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tenant_invitations_tenant
     ON tenant_invitations(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_invitations_invitee
     ON tenant_invitations(invitee_user_id);
+
+-- knowledge_processing_spans — sqlite mirror of migration 000055. Per-(
+-- knowledge, attempt) span tree for the document parsing pipeline. Uses
+-- TEXT in place of JSONB for input/output/metadata.
+CREATE TABLE IF NOT EXISTS knowledge_processing_spans (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_id    VARCHAR(64)   NOT NULL,
+    attempt         INTEGER       NOT NULL DEFAULT 1,
+    span_id         VARCHAR(64)   NOT NULL,
+    parent_span_id  VARCHAR(64),
+    name            VARCHAR(64)   NOT NULL,
+    kind            VARCHAR(16)   NOT NULL,
+    status          VARCHAR(16)   NOT NULL,
+    input           TEXT,
+    output          TEXT,
+    metadata        TEXT,
+    error_code      VARCHAR(64),
+    error_message   TEXT,
+    error_detail    TEXT,
+    started_at      DATETIME,
+    finished_at     DATETIME,
+    duration_ms     BIGINT,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kpspan_attempt_span
+    ON knowledge_processing_spans (knowledge_id, attempt, span_id);
+CREATE INDEX IF NOT EXISTS idx_kpspan_knowledge_attempt
+    ON knowledge_processing_spans (knowledge_id, attempt);
+CREATE INDEX IF NOT EXISTS idx_kpspan_status_started
+    ON knowledge_processing_spans (status, started_at);
+CREATE INDEX IF NOT EXISTS idx_kpspan_parent
+    ON knowledge_processing_spans (parent_span_id)
+    WHERE parent_span_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS knowledge_tags (
     id VARCHAR(36) PRIMARY KEY,

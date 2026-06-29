@@ -203,6 +203,23 @@ func (h *KnowledgeHandler) handleDuplicateKnowledgeError(c *gin.Context,
 	return false
 }
 
+// handleNewerVersionExistsError handles cases where a newer revision of the document already exists.
+// Returns true if the error was handled, false otherwise.
+func (h *KnowledgeHandler) handleNewerVersionExistsError(c *gin.Context, err error, knowledge *types.Knowledge) bool {
+	if verErr, ok := err.(*types.NewerVersionExistsError); ok {
+		ctx := c.Request.Context()
+		logger.Warnf(ctx, "Newer version exists: %s", secutils.SanitizeForLog(verErr.Error()))
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": verErr.Error(),
+			"data":    knowledge,
+			"code":    "newer_version_exists",
+		})
+		return true
+	}
+	return false
+}
+
 // enqueueKnowledgeListDelete enqueues an async batch-delete task for the
 // given knowledge IDs and returns the asynq task ID.
 func (h *KnowledgeHandler) enqueueKnowledgeListDelete(
@@ -332,6 +349,9 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 	// Check for duplicate knowledge error
 	if err != nil {
 		if h.handleDuplicateKnowledgeError(c, err, knowledge, "file") {
+			return
+		}
+		if h.handleNewerVersionExistsError(c, err, knowledge) {
 			return
 		}
 		if appErr, ok := errors.IsAppError(err); ok {
@@ -1196,6 +1216,7 @@ func mimeTypeByExt(filename string) string {
 		".pptx":     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		".ppt":      "application/vnd.ms-powerpoint",
 		".xlsx":     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		".xlsm":     "application/vnd.ms-excel.sheet.macroEnabled.12",
 		".xls":      "application/vnd.ms-excel",
 		".csv":      "text/csv",
 		".jpg":      "image/jpeg",

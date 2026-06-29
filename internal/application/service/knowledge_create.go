@@ -144,14 +144,62 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		logger.Errorf(ctx, "Failed to check knowledge existence: %v", err)
 		return nil, err
 	}
+	// Version management: check if this is a versioned document (contains _REV_ pattern)
+	// This must run BEFORE the duplicate rejection so that uploading REV_3 with the same
+	// file content as REV_2 is treated as a version upgrade, not a duplicate.
+	docBaseID, newRevision, _, hasVersion := parseDocVersion(fileName)
+
 	if exists {
-		logger.Infof(ctx, "File already exists: %s", fileName)
-		// Update creation time for existing knowledge
-		if err := s.repo.UpdateKnowledgeColumn(ctx, existingKnowledge.ID, "created_at", time.Now()); err != nil {
-			logger.Errorf(ctx, "Failed to update existing knowledge: %v", err)
+		// If the new file is a versioned document with a DIFFERENT revision than the
+		// matched existing file, skip duplicate rejection and fall through to version
+		// management below. This handles the case where REV_3 has the same hash as REV_2.
+		skipDuplicate := false
+		if hasVersion && existingKnowledge != nil {
+			_, existingRev, _, existingHasVer := parseDocVersion(existingKnowledge.FileName)
+			if existingHasVer && newRevision != existingRev {
+				skipDuplicate = true
+				logger.Infof(ctx, "Same hash but different revision (REV_%s vs REV_%s), skipping duplicate check", newRevision, existingRev)
+			}
+		}
+		if !skipDuplicate {
+			logger.Infof(ctx, "File already exists: %s", fileName)
+			// Update creation time for existing knowledge
+			if err := s.repo.UpdateKnowledgeColumn(ctx, existingKnowledge.ID, "created_at", time.Now()); err != nil {
+				logger.Errorf(ctx, "Failed to update existing knowledge: %v", err)
+				return nil, err
+			}
+			return existingKnowledge, types.NewDuplicateFileError(existingKnowledge)
+		}
+	}
+
+	if hasVersion {
+		logger.Infof(ctx, "Versioned document detected: baseID=%s, revision=%s", docBaseID, newRevision)
+		pattern := docBaseIDToPattern(docBaseID)
+		existingVersions, err := s.repo.FindKnowledgeByDocVersion(ctx, tenantID, kbID, pattern)
+		if err != nil {
+			logger.Errorf(ctx, "Failed to query existing versions: %v", err)
 			return nil, err
 		}
-		return existingKnowledge, types.NewDuplicateFileError(existingKnowledge)
+		for _, existing := range existingVersions {
+			_, existingRev, _, _ := parseDocVersion(existing.FileName)
+			if existingRev == "" {
+				continue
+			}
+			cmp := compareRevisions(newRevision, existingRev)
+			if cmp < 0 {
+				// Existing version is newer → reject upload
+				logger.Infof(ctx, "Newer version already exists: %s (REV_%s > REV_%s)", existing.FileName, existingRev, newRevision)
+				return existing, types.NewNewerVersionExistsError(existing, existingRev)
+			} else if cmp > 0 {
+				// Existing version is older → delete it, continue with upload
+				logger.Infof(ctx, "Deleting older version: %s (REV_%s < REV_%s)", existing.FileName, existingRev, newRevision)
+				if delErr := s.DeleteKnowledge(ctx, existing.ID); delErr != nil {
+					logger.Errorf(ctx, "Failed to delete older version %s: %v", existing.ID, delErr)
+					// Non-fatal: continue with upload even if old version deletion fails
+				}
+			}
+			// cmp == 0: same revision, already handled by hash/filename dedup above
+		}
 	}
 
 	// Check storage quota

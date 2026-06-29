@@ -44,3 +44,25 @@ func NewDuplicateURLError(knowledge *Knowledge) *DuplicateKnowledgeError {
 		Knowledge: knowledge,
 	}
 }
+
+// NewerVersionExistsError signals that a newer revision of the same document
+// already exists in the knowledge base. The handler should return HTTP 409
+// with details about the existing newer version.
+type NewerVersionExistsError struct {
+	Message           string
+	ExistingKnowledge *Knowledge
+	ExistingRevision  string
+}
+
+func (e *NewerVersionExistsError) Error() string {
+	return e.Message
+}
+
+// NewNewerVersionExistsError creates an error indicating a newer version already exists
+func NewNewerVersionExistsError(existing *Knowledge, existingRevision string) *NewerVersionExistsError {
+	return &NewerVersionExistsError{
+		Message:           fmt.Sprintf("已存在更新版本: %s (REV_%s)", existing.FileName, existingRevision),
+		ExistingKnowledge: existing,
+		ExistingRevision:  existingRevision,
+	}
+}

@@ -31,7 +31,7 @@ const fileInputRef = ref<HTMLInputElement>();
 // Supported file types (matching backend)
 const SUPPORTED_TYPES = [
   // Documents
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.xlsm', '.ppt', '.pptx',
   // Text
   '.txt', '.md', '.csv', '.json', '.xml', '.html',
   // Audio
