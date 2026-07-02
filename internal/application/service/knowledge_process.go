@@ -1020,7 +1020,21 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 		}
 	}
 
-	// Get text chunks for this knowledge
+	// Get text chunks for this knowledge.
+	// We only need enough chunks to fill maxInputChars — reading all 10k+
+	// chunks for a large document wastes seconds of DB time and memory.
+	// Each chunk is at most chunkSize chars (default 512); we fetch
+	// ceil(maxInputChars / 256) chunks as a safe upper bound (256 = half
+	// the minimum chunk size, giving headroom for overlap/short chunks).
+	maxInputCharsForLimit := defaultMaxInputChars
+	if s.config.Conversation.Summary != nil && s.config.Conversation.Summary.MaxInputChars > 0 {
+		maxInputCharsForLimit = s.config.Conversation.Summary.MaxInputChars
+	}
+	chunkFetchLimit := maxInputCharsForLimit/256 + 1
+	if chunkFetchLimit < 50 {
+		chunkFetchLimit = 50 // always fetch at least 50 chunks
+	}
+
 	chunks, err := s.chunkService.ListChunksByKnowledgeID(ctx, payload.KnowledgeID)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to get chunks: %v", err)
@@ -1029,11 +1043,15 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 		return nil
 	}
 
-	// Filter text chunks only
-	textChunks := make([]*types.Chunk, 0)
+	// Filter text chunks only, and cap at chunkFetchLimit to avoid
+	// reading the entire document into memory for large files.
+	textChunks := make([]*types.Chunk, 0, chunkFetchLimit)
 	for _, chunk := range chunks {
 		if chunk.ChunkType == types.ChunkTypeText {
 			textChunks = append(textChunks, chunk)
+			if len(textChunks) >= chunkFetchLimit {
+				break
+			}
 		}
 	}
 	summaryOut["text_chunks"] = len(textChunks)

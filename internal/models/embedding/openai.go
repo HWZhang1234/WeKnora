@@ -3,10 +3,13 @@ package embedding
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -62,9 +65,20 @@ func NewOpenAIEmbedder(apiKey, baseURL, modelName string,
 
 	timeout := 60 * time.Second
 
-	// Create HTTP client
+	// Create HTTP client with optional TLS skip verify
+	// (reuses the same WEKNORA_LLM_INSECURE_SKIP_VERIFY flag as the LLM client)
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: strings.EqualFold(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY"), "true"), //nolint:gosec — operator opt-in
+	}
 	client := &http.Client{
 		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			TLSHandshakeTimeout: 10 * time.Second,
+			TLSClientConfig:     tlsConfig,
+			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConnsPerHost: 10,
+		},
 	}
 
 	return &OpenAIEmbedder{

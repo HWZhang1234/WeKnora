@@ -12,6 +12,16 @@ builtin_models:
       api_key: ${LLM_API_KEY}
       provider: ${LLM_PROVIDER}
 
+  - id: builtin-llm-summary
+    type: KnowledgeQA
+    source: remote
+    is_default: false
+    name: ${SUMMARY_MODEL_NAME}
+    parameters:
+      base_url: ${SUMMARY_BASE_URL}
+      api_key: ${SUMMARY_API_KEY}
+      provider: ${SUMMARY_PROVIDER}
+
   - id: builtin-embedding-default
     type: Embedding
     source: remote
@@ -34,3 +44,13 @@ builtin_models:
       base_url: ${RERANK_BASE_URL}
       api_key: ${RERANK_API_KEY}
       provider: ${RERANK_PROVIDER}
+
+  - id: builtin-vlm-default
+    type: VLLM
+    source: remote
+    is_default: true
+    name: ${VLM_MODEL_NAME}
+    parameters:
+      base_url: ${VLM_BASE_URL}
+      api_key: ${VLM_API_KEY}
+      provider: ${VLM_PROVIDER}
