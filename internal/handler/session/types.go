@@ -62,6 +62,14 @@ type CreateKnowledgeQARequest struct {
 	Images            []ImageAttachment  `json:"images"`                       // Attached images for multimodal chat
 	AttachmentUploads []AttachmentUpload `json:"attachment_uploads,omitempty"` // Attached files (documents, audio, etc.)
 	Channel           string             `json:"channel"`                      // Source channel: "web", "api", "im", etc.
+	// LLMApiKey is a per-request override for the LLM API key used to call the
+	// upstream chat model. Empty = use the backend/DB configured key. This lets
+	// external API callers bill against their own LLM key. NEVER logged.
+	LLMApiKey string `json:"llm_api_key,omitempty"`
+	// ModelName is a per-request override for the primary chat model name.
+	// Must include the provider prefix required by the gateway
+	// (e.g. "anthropic::claude-4-8-opus"). Empty = use the session default.
+	ModelName string `json:"model_name,omitempty"`
 }
 
 // AttachmentUpload represents a file attachment upload from the client

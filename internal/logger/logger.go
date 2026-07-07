@@ -516,6 +516,11 @@ func CloneContext(ctx context.Context) context.Context {
 		// to the same trace opened by GinMiddleware, instead of each call
 		// auto-creating its own orphan trace.
 		types.LangfuseTraceContextKey,
+		// LLMOverrideContextKey carries the per-request LLM API key / model
+		// name override from the chat handler. It must survive CloneContext
+		// because the QA service runs on asyncCtx (a clone of the request
+		// context) and GetChatModel — the sole consumer — is called from there.
+		types.LLMOverrideContextKey,
 	} {
 		if v := ctx.Value(k); v != nil {
 			newCtx = context.WithValue(newCtx, k, v)

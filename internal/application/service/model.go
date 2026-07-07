@@ -496,7 +496,25 @@ func (s *modelService) GetChatModel(ctx context.Context, modelId string) (chat.C
 
 	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
 
-	chatModel, err := chat.NewChat(chat.ConfigFromModel(model, appID, appSecret), s.ollamaService)
+	cfg := chat.ConfigFromModel(model, appID, appSecret)
+
+	// Apply per-request LLM override, if the chat handler injected one. This
+	// lets external API callers use their own LLM API key and/or pick a model
+	// name per request, reusing the DB model record's base_url/provider. Empty
+	// fields do not override. The APIKey is a secret — never log it.
+	if v := ctx.Value(types.LLMOverrideContextKey); v != nil {
+		if ov, ok := v.(types.LLMOverride); ok {
+			if ov.APIKey != "" {
+				cfg.APIKey = ov.APIKey
+			}
+			if ov.ModelName != "" {
+				cfg.ModelName = ov.ModelName
+				logger.Infof(ctx, "Applying per-request model override: %s", ov.ModelName)
+			}
+		}
+	}
+
+	chatModel, err := chat.NewChat(cfg, s.ollamaService)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id":   model.ID,

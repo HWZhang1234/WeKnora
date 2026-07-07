@@ -165,7 +165,23 @@ export function useStream() {
         },
 
         onmessage: (ev) => {
-          const parsed = JSON.parse(ev.data);
+          // 心跳/空行没有 data，直接跳过，避免 JSON.parse('') 抛异常中断整条流。
+          if (!ev.data) return;
+
+          // 关键容错：SSE 事件按网络 chunk 分片到达，偶发会出现被截断或非
+          // JSON 的行（心跳注释、超长 references 被切片等）。历史实现直接
+          // JSON.parse(ev.data)，一旦某行不是合法 JSON 就抛异常，冒泡到
+          // fetchEventSource 后整条流中断，UI 永久卡在 loading 转圈——这正是
+          // “有时成功有时失败”的随机现象根因（是否触发取决于网络分片时机）。
+          // 这里改为捕获解析错误、跳过坏行而不终止流。
+          let parsed: any;
+          try {
+            parsed = JSON.parse(ev.data);
+          } catch (e) {
+            console.warn(`[SSE] skip non-JSON chunk request_id=${requestID}:`, ev.data);
+            return;
+          }
+
           // Log first answer chunk for end-to-end TTFB measurement.
           // Filter by event type so non-answer events (references, tool
           // calls, etc.) don't count as the "first token" arrival.
@@ -181,6 +197,12 @@ export function useStream() {
         },
 
         onerror: (err) => {
+          // fetchEventSource 约定：onerror 里 throw = 放弃重试并终止；不 throw =
+          // 库会自动退避重连。这里选择终止（保持既有行为：一次问答不做无限重连），
+          // 但显式关闭 loading/streaming 状态，避免流异常结束后 UI 永久卡在转圈。
+          console.error(`[SSE] stream error request_id=${requestID}:`, err);
+          isLoading.value = false;
+          isStreaming.value = false;
           throw new Error(`${i18n.global.t('error.streamFailed')}: ${err}`);
         },
 

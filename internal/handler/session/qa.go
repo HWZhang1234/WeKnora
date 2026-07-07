@@ -96,6 +96,18 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		return nil, nil, errors.NewBadRequestError("Query content cannot be empty")
 	}
 
+	// Per-request LLM override: carry a caller-supplied LLM API key and/or
+	// model name down to ModelService.GetChatModel via context. Empty fields
+	// are ignored there (fall back to the DB model record). Injected here so
+	// the value rides on reqCtx.ctx → asyncCtx → the QA pipeline.
+	// NOTE: the APIKey must never be logged (see redaction below).
+	if request.LLMApiKey != "" || request.ModelName != "" {
+		ctx = context.WithValue(ctx, types.LLMOverrideContextKey, types.LLMOverride{
+			APIKey:    request.LLMApiKey,
+			ModelName: request.ModelName,
+		})
+	}
+
 	// SSRF protection: strip client-supplied URL/Caption fields from image attachments.
 	// The URL field must only be populated server-side by saveImageAttachments; an
 	// attacker could inject internal network URLs to trigger SSRF via the LLM provider.
@@ -104,8 +116,14 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		request.Images[i].Caption = ""
 	}
 
-	// Log request details
-	if requestJSON, err := json.Marshal(request); err == nil {
+	// Log request details. Redact the LLM API key: it's a caller secret and
+	// must never reach the logs. Copy-by-value first, then blank the field so
+	// the original request (used downstream) keeps the real key.
+	logReq := request
+	if logReq.LLMApiKey != "" {
+		logReq.LLMApiKey = "[REDACTED]"
+	}
+	if requestJSON, err := json.Marshal(logReq); err == nil {
 		logger.Infof(ctx, "[%s] Request: session_id=%s, request=%s",
 			logPrefix, sessionID, secutils.SanitizeForLog(secutils.CompactImageDataURLForLog(string(requestJSON))))
 	}

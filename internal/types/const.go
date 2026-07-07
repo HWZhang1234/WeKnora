@@ -33,7 +33,23 @@ const (
 	LangfuseTraceContextKey ContextKey = "LangfuseTrace"
 	// SystemAdminContextKey is the context key indicating whether the user is a system administrator
 	SystemAdminContextKey ContextKey = "SystemAdmin"
+	// LLMOverrideContextKey carries a per-request LLMOverride (caller-supplied
+	// LLM API key and/or model name) from the chat handler down to
+	// GetChatModel, so external callers can use their own LLM credentials and
+	// pick a model per request without pre-creating a DB model record.
+	// Never log the APIKey it carries.
+	LLMOverrideContextKey ContextKey = "LLMOverride"
 )
+
+// LLMOverride holds per-request overrides for the chat LLM call. Empty fields
+// mean "do not override" — the backend keeps the value from the DB model
+// record. Injected into context by the chat handler and consumed at the single
+// chokepoint ModelService.GetChatModel.
+type LLMOverride struct {
+	APIKey    string // Caller's LLM API key; empty = use the DB/model default.
+	ModelName string // Override chat model name (must include provider prefix,
+	// e.g. "anthropic::claude-4-8-opus"); empty = use the session default.
+}
 
 // String returns the string representation of the context key
 func (c ContextKey) String() string {
