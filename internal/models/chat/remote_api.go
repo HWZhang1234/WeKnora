@@ -27,9 +27,12 @@ type RemoteAPIChat struct {
 	modelID   string
 	baseURL   string
 	apiKey    string
-	provider  provider.ProviderName
-	appID     string
-	appSecret string
+	// fallbackAPIKey 来自 CHAT_FALLBACK_API_KEY 环境变量，主 key 429 时自动切换。
+	fallbackAPIKey string
+	fallbackClient *openai.Client
+	provider       provider.ProviderName
+	appID          string
+	appSecret      string
 	// customHeaders 为用户在模型配置中指定的自定义 HTTP 请求头（类似 OpenAI Python SDK 的 extra_headers）。
 	customHeaders map[string]string
 
@@ -48,6 +51,7 @@ func NewRemoteAPIChat(chatConfig *ChatConfig) (*RemoteAPIChat, error) {
 	}
 
 	apiKey := chatConfig.APIKey
+	fallbackAPIKey := os.Getenv("CHAT_FALLBACK_API_KEY")
 	providerName := provider.ProviderName(chatConfig.Provider)
 	if providerName == "" {
 		providerName = provider.DetectProvider(chatConfig.BaseURL)
@@ -103,12 +107,34 @@ func NewRemoteAPIChat(chatConfig *ChatConfig) (*RemoteAPIChat, error) {
 		}
 	}
 
+	// 构造 fallback client（使用 CHAT_FALLBACK_API_KEY，主 key 429 时切换）
+	var fallbackClient *openai.Client
+	if fallbackAPIKey != "" && fallbackAPIKey != apiKey {
+		fbConfig := openai.DefaultConfig(fallbackAPIKey)
+		if baseURL := chatConfig.BaseURL; baseURL != "" {
+			fbConfig.BaseURL = baseURL
+		}
+		if strings.EqualFold(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY"), "true") {
+			fbConfig.HTTPClient = rawHTTPClient
+		}
+		if len(chatConfig.CustomHeaders) > 0 {
+			if httpClient, ok := fbConfig.HTTPClient.(*http.Client); ok {
+				fbConfig.HTTPClient = secutils.WrapHTTPClientWithHeaders(httpClient, chatConfig.CustomHeaders)
+			} else {
+				fbConfig.HTTPClient = secutils.WrapHTTPClientWithHeaders(nil, chatConfig.CustomHeaders)
+			}
+		}
+		fallbackClient = openai.NewClientWithConfig(fbConfig)
+	}
+
 	return &RemoteAPIChat{
 		modelName:        modelName,
 		client:           openai.NewClientWithConfig(config),
 		modelID:          chatConfig.ModelID,
 		baseURL:          chatConfig.BaseURL,
 		apiKey:           apiKey,
+		fallbackAPIKey:   fallbackAPIKey,
+		fallbackClient:   fallbackClient,
 		provider:         providerName,
 		appID:            chatConfig.AppID,
 		appSecret:        chatConfig.AppSecret,
@@ -185,6 +211,14 @@ func (c *RemoteAPIChat) Chat(ctx context.Context, messages []Message, opts *Chat
 			cleaned := stripImagesFromMessages(messages)
 			req = c.shapedRequest(cleaned, opts, false)
 			resp, err = c.client.CreateChatCompletion(timeoutCtx, req)
+		}
+		// 主 key 429 限流时，切换 fallback key 重试一次
+		if err != nil && isRateLimitError(err) && c.fallbackClient != nil {
+			logger.Warnf(timeoutCtx, "[LLM Request] Primary key rate limited (429), switching to fallback key")
+			resp, err = c.fallbackClient.CreateChatCompletion(timeoutCtx, req)
+			if err == nil {
+				logger.Infof(timeoutCtx, "[LLM Request] Fallback key succeeded")
+			}
 		}
 		if err != nil {
 			return nil, fmt.Errorf("create chat completion: %w", err)
@@ -282,6 +316,14 @@ func (c *RemoteAPIChat) ChatStream(ctx context.Context, messages []Message, opts
 			cleaned := stripImagesFromMessages(messages)
 			req = c.shapedRequest(cleaned, opts, true)
 			stream, err = c.client.CreateChatCompletionStream(timeoutCtx, req)
+		}
+		// 主 key 429 限流时，切换 fallback key 重试一次
+		if err != nil && isRateLimitError(err) && c.fallbackClient != nil {
+			logger.Warnf(timeoutCtx, "[LLM Stream] Primary key rate limited (429), switching to fallback key")
+			stream, err = c.fallbackClient.CreateChatCompletionStream(timeoutCtx, req)
+			if err == nil {
+				logger.Infof(timeoutCtx, "[LLM Stream] Fallback key succeeded")
+			}
 		}
 		if err != nil {
 			cancel()

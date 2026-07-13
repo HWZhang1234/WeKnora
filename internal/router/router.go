@@ -83,6 +83,7 @@ type RouterParams struct {
 	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
 	WikiPageHandler              *handler.WikiPageHandler
 	MCPServerHandler             *mcpserver.MCPServerHandler
+	PermissionHandler            *handler.PermissionHandler
 }
 
 // NewRouter 创建新的路由
@@ -211,6 +212,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
+		RegisterPermissionRoutes(v1, params.PermissionHandler, rbacGuards)
 	}
 
 	return r
@@ -960,6 +962,34 @@ func RegisterUserFavoriteRoutes(r *gin.RouterGroup, h *handler.UserResourceFavor
 		favs.GET("", g.Viewer(), h.ListFavorites)
 		favs.POST("", g.Viewer(), h.AddFavorite)
 		favs.DELETE("/:type/:id", g.Viewer(), h.RemoveFavorite)
+	}
+}
+
+// RegisterPermissionRoutes wires the usid permission-layer management API
+// (kb_acl / super_user / common_kb). See internal/handler/permission.go.
+//
+// These endpoints authorize by a self-asserted operator_usid validated against
+// the permission tables, NOT by the tenant RBAC role — the whole system runs
+// under one shared X-API-Key. The rbac guard is set to Viewer+ purely as a
+// baseline "must be authenticated" floor; the real gate is per-endpoint
+// operator_usid validation inside the handler.
+func RegisterPermissionRoutes(r *gin.RouterGroup, h *handler.PermissionHandler, g *rbacGuards) {
+	perms := r.Group("/permissions")
+	{
+		perms.POST("/kb-acl", g.Viewer(), h.AddKBMember)
+		perms.DELETE("/kb-acl", g.Viewer(), h.RemoveKBMember)
+		perms.GET("/kb-acl", g.Viewer(), h.ListKBMembers)
+		perms.POST("/kb-acl/batch", g.Viewer(), h.BatchSetKBMembers)
+
+		perms.GET("/searchable-kbs", g.Viewer(), h.ListSearchableKBs)
+
+		perms.POST("/super-users", g.Viewer(), h.AddSuperUser)
+		perms.DELETE("/super-users/:usid", g.Viewer(), h.RemoveSuperUser)
+		perms.GET("/super-users", g.Viewer(), h.ListSuperUsers)
+
+		perms.POST("/common-kbs", g.Viewer(), h.AddCommonKB)
+		perms.DELETE("/common-kbs/:kb_id", g.Viewer(), h.RemoveCommonKB)
+		perms.GET("/common-kbs", g.Viewer(), h.ListCommonKBs)
 	}
 }
 

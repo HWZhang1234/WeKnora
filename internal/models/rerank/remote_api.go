@@ -3,10 +3,14 @@ package rerank
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
@@ -57,12 +61,22 @@ func NewOpenAIReranker(config *RerankerConfig) (*OpenAIReranker, error) {
 		baseURL = url
 	}
 
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: strings.EqualFold(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY"), "true"), //nolint:gosec — operator opt-in
+	}
+	httpClient := &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+		},
+	}
+
 	return &OpenAIReranker{
 		modelName: config.ModelName,
 		modelID:   config.ModelID,
 		apiKey:    apiKey,
 		baseURL:   baseURL,
-		client:    &http.Client{},
+		client:    httpClient,
 	}, nil
 }
 

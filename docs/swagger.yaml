@@ -1151,6 +1151,17 @@ definitions:
     required:
     - invite_code
     type: object
+  github_com_Tencent_WeKnora_internal_types.KBAclDisplaySource:
+    properties:
+      admins:
+        items:
+          type: string
+        type: array
+      normals:
+        items:
+          type: string
+        type: array
+    type: object
   github_com_Tencent_WeKnora_internal_types.KBCloneTaskStatus:
     enum:
     - pending
@@ -3705,6 +3716,15 @@ definitions:
     - ids
     - kb_id
     type: object
+  internal_handler.CommonKBRequest:
+    properties:
+      kb_id:
+        type: string
+      note:
+        type: string
+      operator_usid:
+        type: string
+    type: object
   internal_handler.CopyKnowledgeBaseRequest:
     properties:
       source_id:
@@ -3994,6 +4014,52 @@ definitions:
     - documentSplitting
     - embedding
     - llm
+    type: object
+  internal_handler.KBAclBatchRequest:
+    properties:
+      admins:
+        items:
+          type: string
+        type: array
+      display_source:
+        allOf:
+        - $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBAclDisplaySource'
+        description: |-
+          DisplaySource is OPTIONAL. It carries the ORIGINAL group/usid tokens the
+          user picked in the UI (e.g. "group:teamA", "usid:bob") before the caller
+          expanded groups into the individual usids sent in Admins/Normals. It is
+          stored verbatim and returned for display only — it is NEVER used for
+          permission decisions. Omit it to leave any existing display source
+          untouched (and to keep the old behaviour exactly).
+      kb_id:
+        type: string
+      normals:
+        items:
+          type: string
+        type: array
+      operator_usid:
+        type: string
+    type: object
+  internal_handler.KBAclRemoveRequest:
+    properties:
+      kb_id:
+        type: string
+      operator_usid:
+        type: string
+      usid:
+        type: string
+    type: object
+  internal_handler.KBAclUpsertRequest:
+    properties:
+      kb_id:
+        type: string
+      operator_usid:
+        type: string
+      role:
+        description: admin | normal
+        type: string
+      usid:
+        type: string
     type: object
   internal_handler.KBModelConfigRequest:
     properties:
@@ -4368,6 +4434,15 @@ definitions:
         description: '"local", "minio", "cos", "tos", "s3", "oss", "ks3"'
         type: string
     type: object
+  internal_handler.SuperUserRequest:
+    properties:
+      note:
+        type: string
+      operator_usid:
+        type: string
+      usid:
+        type: string
+    type: object
   internal_handler.TestProviderRequest:
     properties:
       parameters:
@@ -4674,11 +4749,23 @@ definitions:
         items:
           type: string
         type: array
+      llm_api_key:
+        description: |-
+          LLMApiKey is a per-request override for the LLM API key used to call the
+          upstream chat model. Empty = use the backend/DB configured key. This lets
+          external API callers bill against their own LLM key. NEVER logged.
+        type: string
       mentioned_items:
         description: '@mentioned knowledge bases and files'
         items:
           $ref: '#/definitions/internal_handler_session.MentionedItemRequest'
         type: array
+      model_name:
+        description: |-
+          ModelName is a per-request override for the primary chat model name.
+          Must include the provider prefix required by the gateway
+          (e.g. "anthropic::claude-4-8-opus"). Empty = use the session default.
+        type: string
       query:
         description: Query text for knowledge base search
         type: string
@@ -10664,6 +10751,384 @@ paths:
       summary: 搜索可加入的空间
       tags:
       - 组织管理
+  /permissions/common-kbs:
+    get:
+      description: Open to any authenticated caller.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: List all public (common) KBs
+      tags:
+      - Permission
+    post:
+      consumes:
+      - application/json
+      description: Mark a knowledge base as common, making it readable by any usid.
+        Operator must be a super_user.
+      parameters:
+      - description: operator_usid, kb_id, note
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.CommonKBRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Mark a KB as public (common)
+      tags:
+      - Permission
+  /permissions/common-kbs/{kb_id}:
+    delete:
+      description: Remove a knowledge base's common (public) mark. Operator must be
+        a super_user.
+      parameters:
+      - description: KB id to unmark
+        in: path
+        name: kb_id
+        required: true
+        type: string
+      - description: operator's usid
+        in: query
+        name: operator_usid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Unmark a public KB
+      tags:
+      - Permission
+  /permissions/kb-acl:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a usid from a knowledge base roster. Operator must be that
+        KB's admin or a super_user.
+      parameters:
+      - description: operator_usid, kb_id, usid
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.KBAclRemoveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Remove a KB member
+      tags:
+      - Permission
+    get:
+      description: Provide kb_id to list a KB's members (operator must be that KB's
+        admin or a super_user), OR provide usid to list the KBs that usid can access
+        (operator must be a super_user, or querying self).
+      parameters:
+      - description: operator's usid
+        in: query
+        name: operator_usid
+        required: true
+        type: string
+      - description: list this KB's members (mode A)
+        in: query
+        name: kb_id
+        type: string
+      - description: list KBs accessible to this usid (mode B)
+        in: query
+        name: usid
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: List members of a KB, or KBs a usid can access
+      tags:
+      - Permission
+    post:
+      consumes:
+      - application/json
+      description: Grant or update a usid's role on a knowledge base. Operator must
+        be that KB's admin or a super_user.
+      parameters:
+      - description: operator_usid, kb_id, usid, role(admin|normal)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.KBAclUpsertRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Add or update a KB member (admin/normal)
+      tags:
+      - Permission
+  /permissions/kb-acl/batch:
+    post:
+      consumes:
+      - application/json
+      description: 'Atomically set the complete member list of a knowledge base. Send
+        the FULL desired lists on every save (not a delta): members not present are
+        removed, listed members are inserted/updated. A usid appearing in both admins
+        and normals becomes admin. At least one admin is required. Authorization:
+        if the KB has no roster yet (freshly created, empty kb_acl) ANY authenticated
+        caller may set the initial roster (bootstrap first-grant) — this is the "create
+        database" flow where the creator picks the initial admins. Once the KB has
+        a roster, the operator must be that KB''s admin or a super_user. Optional
+        display_source carries the ORIGINAL group/usid tokens the user picked (e.g.
+        "group:teamA") before the caller expanded groups into the usids in admins/normals;
+        it is stored verbatim and echoed back for display only, NEVER used for permission
+        decisions. Intended for the create-database flow and the manage-members panel.'
+      parameters:
+      - description: operator_usid, kb_id, admins[], normals[]
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.KBAclBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Replace a KB's whole member roster (admins + normals)
+      tags:
+      - Permission
+  /permissions/searchable-kbs:
+    get:
+      description: 'Returns exactly the set of knowledge bases the given usid may
+        search via the MCP search_chunks/chat tools: for a super_user, every KB; otherwise
+        the KBs granted in kb_acl (admin or normal) UNION all public (common) KBs.
+        Each entry carries the KB name and why it is visible (source: acl/common/super;
+        role for acl entries). Use the returned kb_id as the kb_ids argument of search_chunks/chat
+        to restrict a search to a single KB. Authorization: any authenticated caller
+        may query their own usid; querying another usid requires the operator to be
+        a super_user.'
+      parameters:
+      - description: the usid whose searchable KBs to list
+        in: query
+        name: usid
+        required: true
+        type: string
+      - description: operator's usid; required (and must be a super_user) only when
+          different from usid
+        in: query
+        name: operator_usid
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: List all knowledge bases a usid can search
+      tags:
+      - Permission
+  /permissions/super-users:
+    get:
+      description: Operator must be a super_user.
+      parameters:
+      - description: operator's usid
+        in: query
+        name: operator_usid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: List all super_users
+      tags:
+      - Permission
+    post:
+      consumes:
+      - application/json
+      description: Promote a usid to super_user. Operator must already be a super_user.
+      parameters:
+      - description: operator_usid, usid, note
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.SuperUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Add a super_user
+      tags:
+      - Permission
+  /permissions/super-users/{usid}:
+    delete:
+      description: Demote a super_user. Operator must be a super_user.
+      parameters:
+      - description: usid to remove
+        in: path
+        name: usid
+        required: true
+        type: string
+      - description: operator's usid
+        in: query
+        name: operator_usid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Remove a super_user
+      tags:
+      - Permission
   /sessions:
     get:
       consumes:

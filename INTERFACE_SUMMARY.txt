@@ -1,0 +1,182 @@
+
+WEKNORA INTERFACE SIGNATURES SUMMARY
+====================================
+
+CONTEXT KEYS (internal/types/const.go):
+- TenantIDContextKey (uint64) - REQUIRED
+- UserIDContextKey (string)
+- TenantRoleContextKey (types.TenantRole)
+- SystemAdminContextKey (bool)
+- RequestIDContextKey (string)
+- LanguageContextKey (string)
+
+Helper Functions:
+  TenantIDFromContext(ctx) (uint64, bool)
+  UserIDFromContext(ctx) (string, bool)
+  TenantRoleFromContext(ctx) TenantRole
+  IsSystemAdminFromContext(ctx) bool
+
+==============
+1. KNOWLEDGEBASESERVICE
+==============
+
+ListKnowledgeBases(ctx) ([]*types.KnowledgeBase, error)
+  Context: TenantID
+  Lists all KBs in tenant
+
+GetKnowledgeBaseByID(ctx, id string) (*types.KnowledgeBase, error)
+  Context: TenantID
+  Get KB by ID (tenant-scoped)
+
+GetKnowledgeBasesByIDsOnly(ctx, ids []string) ([]*types.KnowledgeBase, error)
+  Batch get without tenant filter
+
+HybridSearch(ctx, id string, params types.SearchParams) ([]*types.SearchResult, error)
+  Vector + keyword search
+
+GetQueryEmbedding(ctx, kbID, queryText string) ([]float32, error)
+  Get embedding vector
+
+FillKnowledgeBaseCounts(ctx, kb *types.KnowledgeBase) error
+  Fills KB counts
+
+ListKnowledgeBasesByTenantID(ctx, tenantID uint64) ([]*types.KnowledgeBase, error)
+  List KBs for specific tenant
+
+==============
+2. KNOWLEDGESERVICE
+==============
+
+GetKnowledgeByID(ctx, id string) (*types.Knowledge, error)
+  Context: TenantID
+  Get knowledge item
+
+ListPagedKnowledgeByKnowledgeBaseID(ctx, kbID string, page *Pagination, filter KnowledgeListFilter) (*PageResult, error)
+  Context: TenantID
+  Lists with pagination and filtering
+  Filter: tag, keyword, file type, parse status, source, time range
+
+ListKnowledgeByKnowledgeBaseID(ctx, kbID string) ([]*types.Knowledge, error)
+  Lists all (no pagination)
+
+GetKnowledgeFile(ctx, id string) (io.ReadCloser, string, error)
+  Download file
+  Returns: (file reader, MIME type, error)
+  MUST CLOSE reader after use
+
+SearchKnowledge(ctx, keyword string, offset, limit int, fileTypes []string) ([]*Knowledge, bool, error)
+  Search by keyword
+  Returns: (results, hasMore, error)
+
+GetKnowledgeBatch(ctx, tenantID uint64, ids []string) ([]*types.Knowledge, error)
+  Batch retrieval
+
+SearchKnowledgeForScopes(ctx, scopes, keyword, offset, limit, fileTypes) ([]*Knowledge, bool, error)
+  Search in multiple scopes
+
+==============
+3. CHUNKSERVICE
+==============
+
+ListChunksByKnowledgeID(ctx, knowledgeID string) ([]*types.Chunk, error)
+  Context: TenantID
+
+ListPagedChunksByKnowledgeID(ctx, knowledgeID string, page *Pagination, chunkType []ChunkType) (*PageResult, error)
+  Paged chunks with optional filter
+
+GetChunkByID(ctx, id string) (*types.Chunk, error)
+  Context: TenantID
+
+UpdateChunk(ctx, chunk *types.Chunk) error
+UpdateChunks(ctx, chunks []*types.Chunk) error
+DeleteChunk(ctx, id string) error
+DeleteChunks(ctx, ids []string) error
+DeleteChunksByKnowledgeID(ctx, knowledgeID string) error
+DeleteByKnowledgeList(ctx, ids []string) error
+
+==============
+4. SESSIONSERVICE
+==============
+
+CreateSession(ctx, session *types.Session) (*types.Session, error)
+  Context: TenantID, UserID
+
+GetSession(ctx, id string) (*types.Session, error)
+  Context: TenantID, UserID
+
+GetSessionsByTenant(ctx) ([]*types.Session, error)
+GetPagedSessionsByTenant(ctx, page *Pagination) (*PageResult, error)
+ListSessions(ctx, query *SessionListQuery) (*PageResult, error)
+
+UpdateSession(ctx, session *types.Session) error
+DeleteSession(ctx, id string) error
+BatchDeleteSessions(ctx, ids []string) error
+DeleteAllSessions(ctx) error
+
+SetSessionPinned(ctx, sessionID string, pinned bool) (int64, error)
+  Returns: (rows affected, error)
+
+KnowledgeQA(ctx, req *types.QARequest, eventBus *event.EventBus) error
+  Context: TenantID, UserID
+  Streaming QA
+  Events: "references", "answer_chunks", "completion"
+
+SearchKnowledge(ctx, knowledgeBaseIDs, knowledgeIDs []string, query string) ([]*SearchResult, error)
+  Multi-KB search
+
+AgentQA(ctx, req *types.QARequest, eventBus *event.EventBus) error
+  Context: TenantID, UserID
+  Agent-based QA
+
+GenerateTitle(ctx, session *Session, messages []Message, modelID string) (string, error)
+GenerateTitleAsync(ctx, session *Session, userQuery, modelID string, eventBus)
+
+==============
+5. AGENTSERVICE
+==============
+
+CreateAgentEngine(ctx, config *AgentConfig, chatModel Chat, rerankModel Reranker, eventBus *EventBus, sessionID string) (AgentEngine, error)
+  Context: TenantID
+  Engine is stateless
+
+ValidateConfig(config *AgentConfig) error
+
+==============
+6. AGENTENGINE
+==============
+
+Execute(ctx, sessionID, messageID, query string, llmContext []chat.Message, imageURLs ...[]string) (*AgentState, error)
+  Context: TenantID
+
+==============
+IMPLEMENTATION PATTERNS
+==============
+
+Setup Context:
+  ctx = context.WithValue(ctx, types.TenantIDContextKey, uint64(1234))
+  ctx = context.WithValue(ctx, types.UserIDContextKey, "user-id")
+
+Extract Safely:
+  tenantID, ok := types.TenantIDFromContext(ctx)
+  if !ok { return err }
+
+File Download:
+  content, mime, err := svc.GetKnowledgeFile(ctx, id)
+  defer content.Close()
+
+Pagination:
+  page := &types.Pagination{Offset: 0, Limit: 20}
+  result, err := svc.ListPagedKnowledgeByKnowledgeBaseID(ctx, kbID, page, filter)
+
+Streaming:
+  svc.KnowledgeQA(ctx, req, eventBus)
+
+Types:
+  types.Pagination: {Offset, Limit}
+  types.PageResult: {Items, Total}
+  types.QARequest: query + session + KB IDs + model
+  types.SearchResult: chunk + score + source
+  types.KnowledgeListFilter: tag/keyword/type/status/source/time filters
+  types.AgentConfig: agent settings + tools + KBs
+  types.AgentState: thoughts + tools + answer + references
+

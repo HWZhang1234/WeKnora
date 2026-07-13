@@ -25,6 +25,7 @@ type MCPServerHandler struct {
 	chunkService     interfaces.ChunkService
 	sessionService   interfaces.SessionService
 	agentService     interfaces.CustomAgentService
+	permService      interfaces.PermissionService
 }
 
 // NewMCPServerHandler creates a new MCP server handler with the required service
@@ -35,6 +36,7 @@ func NewMCPServerHandler(
 	chunkService interfaces.ChunkService,
 	sessionService interfaces.SessionService,
 	agentService interfaces.CustomAgentService,
+	permService interfaces.PermissionService,
 ) *MCPServerHandler {
 	return &MCPServerHandler{
 		kbService:        kbService,
@@ -42,6 +44,7 @@ func NewMCPServerHandler(
 		chunkService:     chunkService,
 		sessionService:   sessionService,
 		agentService:     agentService,
+		permService:      permService,
 	}
 }
 
@@ -74,6 +77,7 @@ func (h *MCPServerHandler) Handle(c *gin.Context) {
 				chunkService:     h.chunkService,
 				sessionService:   h.sessionService,
 				agentService:     h.agentService,
+				permService:      h.permService,
 				tenantID:         tenantID,
 				userID:           userID,
 			}

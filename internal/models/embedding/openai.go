@@ -19,6 +19,7 @@ import (
 // OpenAIEmbedder implements text vectorization functionality using OpenAI API
 type OpenAIEmbedder struct {
 	apiKey               string
+	fallbackAPIKey       string // EMBEDDING_FALLBACK_API_KEY — used when primary key fails
 	baseURL              string
 	modelName            string
 	truncatePromptTokens int
@@ -83,6 +84,7 @@ func NewOpenAIEmbedder(apiKey, baseURL, modelName string,
 
 	return &OpenAIEmbedder{
 		apiKey:               apiKey,
+		fallbackAPIKey:       os.Getenv("EMBEDDING_FALLBACK_API_KEY"),
 		baseURL:              baseURL,
 		modelName:            modelName,
 		httpClient:           client,
@@ -91,7 +93,7 @@ func NewOpenAIEmbedder(apiKey, baseURL, modelName string,
 		dimensions:           dimensions,
 		modelID:              modelID,
 		timeout:              timeout,
-		maxRetries:           3, // Maximum retry count
+		maxRetries:           1, // Primary key retry count before switching to fallback key (1 = fail fast, switch to fallback immediately)
 	}, nil
 }
 
@@ -159,11 +161,53 @@ func (e *OpenAIEmbedder) doRequestWithRetry(ctx context.Context, jsonData []byte
 		secutils.ApplyCustomHeaders(req, e.customHeaders)
 
 		resp, err = e.httpClient.Do(req)
-		if err == nil {
-			return resp, nil
+		if err != nil {
+			logger.GetLogger(ctx).Errorf("OpenAIEmbedder request failed (attempt %d/%d): %v", i+1, e.maxRetries+1, err)
+			continue
 		}
 
-		logger.GetLogger(ctx).Errorf("OpenAIEmbedder request failed (attempt %d/%d): %v", i+1, e.maxRetries+1, err)
+		// Retry on 429 Too Many Requests with longer backoff
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			backoffTime := time.Duration(2<<uint(i)) * time.Second
+			if backoffTime > 60*time.Second {
+				backoffTime = 60 * time.Second
+			}
+			logger.GetLogger(ctx).Warnf("OpenAIEmbedder got 429 (attempt %d/%d), backing off %v", i+1, e.maxRetries+1, backoffTime)
+			select {
+			case <-time.After(backoffTime):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			err = fmt.Errorf("embedding API rate limited (429)")
+			continue
+		}
+
+		return resp, nil
+	}
+
+	// Primary key exhausted all retries — try fallback key once if configured.
+	if e.fallbackAPIKey != "" && e.fallbackAPIKey != e.apiKey {
+		logger.GetLogger(ctx).Warnf("OpenAIEmbedder primary key failed after %d retries, switching to fallback key", e.maxRetries+1)
+		var req *http.Request
+		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("embedding fallback key: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+e.fallbackAPIKey)
+		secutils.ApplyCustomHeaders(req, e.customHeaders)
+
+		resp, err = e.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("embedding fallback key: request failed: %w", err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			return nil, fmt.Errorf("embedding fallback key also rate limited (429)")
+		}
+		logger.GetLogger(ctx).Infof("OpenAIEmbedder fallback key succeeded")
+		return resp, nil
 	}
 
 	return nil, err

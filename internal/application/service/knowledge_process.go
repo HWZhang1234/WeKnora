@@ -1148,17 +1148,17 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 			}
 		}
 
-		// Embed only the LLM-generated summary in the indexed chunk.
-		// We deliberately omit knowledge.FileName here: filenames are an
-		// unreliable signal (e.g. "MX5280.pdf" for a scanned legal letter)
-		// and surfacing them in retrieved RAG context can re-introduce the
-		// hallucination vector this branch is meant to close.
+		// Include the document title at the top of the summary chunk so that
+		// keyword searches by document number / filename (e.g. "KBA-260123013300")
+		// can hit this chunk directly via grep_chunks or full-text search.
+		// The title is placed in a structured header so it is clearly labelled
+		// and does not pollute the LLM-generated summary prose.
 		summaryChunk := &types.Chunk{
 			ID:              uuid.New().String(),
 			TenantID:        knowledge.TenantID,
 			KnowledgeID:     knowledge.ID,
 			KnowledgeBaseID: knowledge.KnowledgeBaseID,
-			Content:         fmt.Sprintf("# Summary\n%s", summary),
+			Content:         fmt.Sprintf("# Document: %s\n\n# Summary\n%s", knowledge.Title, summary),
 			ChunkIndex:      maxChunkIndex + 1,
 			IsEnabled:       true,
 			CreatedAt:       time.Now(),

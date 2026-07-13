@@ -9274,6 +9274,557 @@
                 }
             }
         },
+        "/permissions/common-kbs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Open to any authenticated caller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "List all public (common) KBs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Mark a knowledge base as common, making it readable by any usid. Operator must be a super_user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Mark a KB as public (common)",
+                "parameters": [
+                    {
+                        "description": "operator_usid, kb_id, note",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.CommonKBRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/common-kbs/{kb_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Remove a knowledge base's common (public) mark. Operator must be a super_user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Unmark a public KB",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "KB id to unmark",
+                        "name": "kb_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "operator's usid",
+                        "name": "operator_usid",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/kb-acl": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Provide kb_id to list a KB's members (operator must be that KB's admin or a super_user), OR provide usid to list the KBs that usid can access (operator must be a super_user, or querying self).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "List members of a KB, or KBs a usid can access",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "operator's usid",
+                        "name": "operator_usid",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "list this KB's members (mode A)",
+                        "name": "kb_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "list KBs accessible to this usid (mode B)",
+                        "name": "usid",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Grant or update a usid's role on a knowledge base. Operator must be that KB's admin or a super_user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Add or update a KB member (admin/normal)",
+                "parameters": [
+                    {
+                        "description": "operator_usid, kb_id, usid, role(admin|normal)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.KBAclUpsertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Remove a usid from a knowledge base roster. Operator must be that KB's admin or a super_user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Remove a KB member",
+                "parameters": [
+                    {
+                        "description": "operator_usid, kb_id, usid",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.KBAclRemoveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/kb-acl/batch": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Atomically set the complete member list of a knowledge base. Send the FULL desired lists on every save (not a delta): members not present are removed, listed members are inserted/updated. A usid appearing in both admins and normals becomes admin. At least one admin is required. Authorization: if the KB has no roster yet (freshly created, empty kb_acl) ANY authenticated caller may set the initial roster (bootstrap first-grant) — this is the \"create database\" flow where the creator picks the initial admins. Once the KB has a roster, the operator must be that KB's admin or a super_user. Optional display_source carries the ORIGINAL group/usid tokens the user picked (e.g. \"group:teamA\") before the caller expanded groups into the usids in admins/normals; it is stored verbatim and echoed back for display only, NEVER used for permission decisions. Intended for the create-database flow and the manage-members panel.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Replace a KB's whole member roster (admins + normals)",
+                "parameters": [
+                    {
+                        "description": "operator_usid, kb_id, admins[], normals[]",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.KBAclBatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/searchable-kbs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns exactly the set of knowledge bases the given usid may search via the MCP search_chunks/chat tools: for a super_user, every KB; otherwise the KBs granted in kb_acl (admin or normal) UNION all public (common) KBs. Each entry carries the KB name and why it is visible (source: acl/common/super; role for acl entries). Use the returned kb_id as the kb_ids argument of search_chunks/chat to restrict a search to a single KB. Authorization: any authenticated caller may query their own usid; querying another usid requires the operator to be a super_user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "List all knowledge bases a usid can search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "the usid whose searchable KBs to list",
+                        "name": "usid",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "operator's usid; required (and must be a super_user) only when different from usid",
+                        "name": "operator_usid",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/super-users": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Operator must be a super_user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "List all super_users",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "operator's usid",
+                        "name": "operator_usid",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Promote a usid to super_user. Operator must already be a super_user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Add a super_user",
+                "parameters": [
+                    {
+                        "description": "operator_usid, usid, note",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.SuperUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/permissions/super-users/{usid}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Demote a super_user. Operator must be a super_user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permission"
+                ],
+                "summary": "Remove a super_user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "usid to remove",
+                        "name": "usid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "operator's usid",
+                        "name": "operator_usid",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/sessions": {
             "get": {
                 "security": [
@@ -14133,6 +14684,23 @@
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.KBAclDisplaySource": {
+            "type": "object",
+            "properties": {
+                "admins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "normals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.KBCloneTaskStatus": {
             "type": "string",
             "enum": [
@@ -17523,6 +18091,20 @@
                 }
             }
         },
+        "internal_handler.CommonKBRequest": {
+            "type": "object",
+            "properties": {
+                "kb_id": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "operator_usid": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.CopyKnowledgeBaseRequest": {
             "type": "object",
             "required": [
@@ -17948,6 +18530,69 @@
                             "type": "string"
                         }
                     }
+                }
+            }
+        },
+        "internal_handler.KBAclBatchRequest": {
+            "type": "object",
+            "properties": {
+                "admins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "display_source": {
+                    "description": "DisplaySource is OPTIONAL. It carries the ORIGINAL group/usid tokens the\nuser picked in the UI (e.g. \"group:teamA\", \"usid:bob\") before the caller\nexpanded groups into the individual usids sent in Admins/Normals. It is\nstored verbatim and returned for display only — it is NEVER used for\npermission decisions. Omit it to leave any existing display source\nuntouched (and to keep the old behaviour exactly).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KBAclDisplaySource"
+                        }
+                    ]
+                },
+                "kb_id": {
+                    "type": "string"
+                },
+                "normals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "operator_usid": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.KBAclRemoveRequest": {
+            "type": "object",
+            "properties": {
+                "kb_id": {
+                    "type": "string"
+                },
+                "operator_usid": {
+                    "type": "string"
+                },
+                "usid": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.KBAclUpsertRequest": {
+            "type": "object",
+            "properties": {
+                "kb_id": {
+                    "type": "string"
+                },
+                "operator_usid": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "admin | normal",
+                    "type": "string"
+                },
+                "usid": {
+                    "type": "string"
                 }
             }
         },
@@ -18473,6 +19118,20 @@
                 }
             }
         },
+        "internal_handler.SuperUserRequest": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string"
+                },
+                "operator_usid": {
+                    "type": "string"
+                },
+                "usid": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.TestProviderRequest": {
             "type": "object",
             "required": [
@@ -18903,12 +19562,20 @@
                         "type": "string"
                     }
                 },
+                "llm_api_key": {
+                    "description": "LLMApiKey is a per-request override for the LLM API key used to call the\nupstream chat model. Empty = use the backend/DB configured key. This lets\nexternal API callers bill against their own LLM key. NEVER logged.",
+                    "type": "string"
+                },
                 "mentioned_items": {
                     "description": "@mentioned knowledge bases and files",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/internal_handler_session.MentionedItemRequest"
                     }
+                },
+                "model_name": {
+                    "description": "ModelName is a per-request override for the primary chat model name.\nMust include the provider prefix required by the gateway\n(e.g. \"anthropic::claude-4-8-opus\"). Empty = use the session default.",
+                    "type": "string"
                 },
                 "query": {
                     "description": "Query text for knowledge base search",

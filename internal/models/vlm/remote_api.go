@@ -2,6 +2,7 @@ package vlm
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -40,10 +41,11 @@ func vlmHTTPTimeout() time.Duration {
 
 // RemoteAPIVLM implements VLM via an OpenAI-compatible chat completions API.
 type RemoteAPIVLM struct {
-	modelName string
-	modelID   string
-	client    *openai.Client
-	baseURL   string
+	modelName      string
+	modelID        string
+	client         *openai.Client
+	fallbackClient *openai.Client // built from VLM_FALLBACK_API_KEY, nil if not set
+	baseURL        string
 }
 
 // NewRemoteAPIVLM creates a remote-API backed VLM instance.
@@ -72,7 +74,17 @@ func NewRemoteAPIVLM(config *Config) (*RemoteAPIVLM, error) {
 			apiCfg.BaseURL = config.BaseURL
 		}
 	}
-	httpClient := &http.Client{Timeout: vlmHTTPTimeout()}
+	// 与 chat/remote_api.go 保持一致：尊重 WEKNORA_LLM_INSECURE_SKIP_VERIFY，
+	// 用于企业内网私有 CA 签发证书的场景。
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: strings.EqualFold(os.Getenv("WEKNORA_LLM_INSECURE_SKIP_VERIFY"), "true"), //nolint:gosec — operator opt-in
+	}
+	httpClient := &http.Client{
+		Timeout: vlmHTTPTimeout(),
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+		},
+	}
 
 	// 注入用户自定义 HTTP header（类似 OpenAI Python SDK 的 extra_headers）
 	if len(config.CustomHeaders) > 0 {
@@ -81,18 +93,30 @@ func NewRemoteAPIVLM(config *Config) (*RemoteAPIVLM, error) {
 		apiCfg.HTTPClient = httpClient
 	}
 
-	return &RemoteAPIVLM{
+	v := &RemoteAPIVLM{
 		modelName: config.ModelName,
 		modelID:   config.ModelID,
 		client:    openai.NewClientWithConfig(apiCfg),
 		baseURL:   config.BaseURL,
-	}, nil
+	}
+
+	// Build fallback client from VLM_FALLBACK_API_KEY if set and different from primary.
+	if fbKey := os.Getenv("VLM_FALLBACK_API_KEY"); fbKey != "" && fbKey != config.APIKey {
+		fbCfg := openai.DefaultConfig(fbKey)
+		if config.BaseURL != "" {
+			fbCfg.BaseURL = config.BaseURL
+		}
+		fbCfg.HTTPClient = httpClient
+		v.fallbackClient = openai.NewClientWithConfig(fbCfg)
+	}
+
+	return v, nil
 }
 
 // Predict sends an image with a text prompt to the OpenAI-compatible API.
 func (v *RemoteAPIVLM) Predict(ctx context.Context, imgBytesList [][]byte, prompt string) (string, error) {
 	var parts []openai.ChatMessagePart
-	
+
 	// Add text prompt first
 	parts = append(parts, openai.ChatMessagePart{
 		Type: openai.ChatMessagePartTypeText,
@@ -136,7 +160,17 @@ func (v *RemoteAPIVLM) Predict(ctx context.Context, imgBytesList [][]byte, promp
 
 	resp, err := v.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("OpenAI VLM request: %w", err)
+		// On 429, try fallback key once if configured.
+		if v.fallbackClient != nil && strings.Contains(err.Error(), "429") {
+			logger.Warnf(ctx, "[VLM] primary key got 429, switching to fallback key")
+			resp, err = v.fallbackClient.CreateChatCompletion(ctx, req)
+			if err != nil {
+				return "", fmt.Errorf("OpenAI VLM request (fallback): %w", err)
+			}
+			logger.Infof(ctx, "[VLM] fallback key succeeded")
+		} else {
+			return "", fmt.Errorf("OpenAI VLM request: %w", err)
+		}
 	}
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("OpenAI VLM returned no choices")

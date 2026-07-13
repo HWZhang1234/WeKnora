@@ -11,6 +11,14 @@ builtin_models:
       base_url: ${LLM_BASE_URL}
       api_key: ${LLM_API_KEY}
       provider: ${LLM_PROVIDER}
+      # 说明：如果默认模型是会“思考”的 vLLM 模型（如 qwen3-235b /
+      # Qwen3-235B-A22B-Thinking），需要在这里加：
+      #   extra_config:
+      #     thinking_control: chat_template_kwargs
+      # 才能让 WeKnora 真正下发 enable_thinking=false 关掉思考，否则最终流式
+      # 生成会因思考首 token 太慢触发 Stream inactivity timeout。
+      # 当前默认是 Claude（anthropic::claude-4-8-opus，自适应思考，不吃这个开关），
+      # 故不设 extra_config。
 
   - id: builtin-llm-summary
     type: KnowledgeQA

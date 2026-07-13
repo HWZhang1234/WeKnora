@@ -16,15 +16,16 @@ import (
 // ---- chat -------------------------------------------------------------------
 
 type chatInput struct {
-	KBID      string `json:"kb_id" jsonschema:"knowledge base ID to query"`
-	Query     string `json:"query" jsonschema:"the question to ask"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"optional session ID for multi-turn conversation; omit for a new conversation"`
+	Usid      string   `json:"usid" jsonschema:"business user id; determines which knowledge bases are queried based on permissions"`
+	Query     string   `json:"query" jsonschema:"the question to ask"`
+	KBIDs     []string `json:"kb_ids,omitempty" jsonschema:"optional: restrict the answer to this subset of knowledge bases; intersected with the usid's permitted set (cannot widen scope). Omit to query all knowledge bases the usid can access"`
+	SessionID string   `json:"session_id,omitempty" jsonschema:"optional session ID for multi-turn conversation; omit for a new conversation"`
 }
 
 func addChat(server *mcpsdk.Server, deps *toolDeps) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "chat",
-		Description: "RAG question answering: ask a question against a knowledge base. The system retrieves relevant chunks and generates an answer with citations. Returns the answer text, referenced chunks, and session_id for follow-up questions.",
+		Description: "RAG question answering: ask a question against all knowledge bases a business user (usid) is permitted to access. The system retrieves relevant chunks and generates an answer with citations. Returns the answer text, referenced chunks, and session_id for follow-up questions.",
 		Annotations: &mcpsdk.ToolAnnotations{
 			Title:           "Knowledge QA Chat",
 			DestructiveHint: bptr(false),
@@ -33,13 +34,27 @@ func addChat(server *mcpsdk.Server, deps *toolDeps) {
 			OpenWorldHint:   bptr(true),
 		},
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in chatInput) (*mcpsdk.CallToolResult, any, error) {
-		if in.KBID == "" {
-			return errorResult("kb_id is required"), nil, nil
+		if in.Usid == "" {
+			return errorResult("usid is required"), nil, nil
 		}
 		if in.Query == "" {
 			return errorResult("query is required"), nil, nil
 		}
 		ctx = deps.enrichCtx(ctx)
+
+		// Resolve the set of KBs this usid may query (permission scope,
+		// optionally intersected with the caller-requested kb_ids).
+		scope, err := deps.resolveScope(ctx, in.Usid, in.KBIDs)
+		if err != nil {
+			return errorResult(fmt.Sprintf("failed to resolve query scope: %v", err)), nil, nil
+		}
+		if len(scope) == 0 {
+			return successResult(map[string]any{
+				"answer":     "抱歉，你没有可访问的知识库，或指定的知识库不在你的权限范围内。",
+				"references": []any{},
+				"session_id": in.SessionID,
+			}), nil, nil
+		}
 
 		// Create or reuse session
 		sessionID := in.SessionID
@@ -62,11 +77,11 @@ func addChat(server *mcpsdk.Server, deps *toolDeps) {
 			return errorResult(fmt.Sprintf("failed to get session: %v", err)), nil, nil
 		}
 
-		// Build QA request
+		// Build QA request over the full permitted scope.
 		qaReq := &types.QARequest{
 			Session:            session,
 			Query:              in.Query,
-			KnowledgeBaseIDs:   []string{in.KBID},
+			KnowledgeBaseIDs:   scope,
 			AssistantMessageID: uuid.New().String(),
 			UserMessageID:      uuid.New().String(),
 		}

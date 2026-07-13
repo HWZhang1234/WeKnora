@@ -1,0 +1,153 @@
+WEKNORA REST API REFERENCE - KNOWLEDGE BASE & DOCUMENT MANAGEMENT
+
+API Base: /api/v1
+Auth: Bearer <token> OR X-API-Key: <key>
+
+1. CREATE KNOWLEDGE BASE
+Endpoint: POST /knowledge-bases
+Status: 201 Created
+Role: Contributor+
+
+Request: {name, description, type, embedding_model_id, vector_store_id, extract_config, config}
+
+Response: {id, name, tenant_id, type, embedding_model_id, vector_store_id, vector_store_name, created_at, ...}
+
+Errors: 400 Bad Request, 401 Unauthorized, 403 Forbidden
+
+================================================================================
+
+2. DELETE KNOWLEDGE BASE
+Endpoint: DELETE /knowledge-bases/:id
+Status: 200 OK
+Role: Owner+ (KB creator or Admin)
+
+Path: :id = KB UUID
+
+Response: {success: true, message: 'deleted'}
+
+Errors: 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found
+
+================================================================================
+
+3. UPLOAD FILE/DOCUMENT
+Endpoint: POST /knowledge-bases/:id/knowledge/file
+Status: 200 OK
+Role: Editor+ (write to KB)
+
+Content-Type: multipart/form-data
+
+Fields: file (required), fileName, metadata, enable_multimodel, tag_id, channel
+
+Response: {id, knowledge_base_id, title, type, file_path, file_size, parse_status, ...}
+
+Limits: Max 50MB per file (MAX_FILE_SIZE_MB env var)
+
+Errors: 400, 401, 403, 404, 409 Conflict (duplicate/newer version)
+
+================================================================================
+
+4. DELETE DOCUMENT
+Endpoint: DELETE /knowledge/:id
+Status: 200 OK (async)
+Role: Editor+ (write to KB)
+
+Path: :id = Knowledge UUID
+
+Response: {task_id} - async task enqueued, not deleted yet
+
+Errors: 400, 401, 403, 404
+
+================================================================================
+
+5. DOWNLOAD DOCUMENT
+Endpoint: GET /knowledge/:id/download
+Status: 200 OK
+Role: Viewer+ (read KB)
+
+Path: :id = Knowledge UUID
+
+Response: Binary file stream with headers:
+  Content-Type: application/octet-stream
+  Content-Disposition: attachment; filename='...'
+
+Errors: 400, 401, 403, 404
+
+================================================================================
+
+6. LIST DOCUMENTS IN KNOWLEDGE BASE
+Endpoint: GET /knowledge-bases/:id/knowledge
+Status: 200 OK
+Role: Viewer+ (read KB)
+
+Query Params:
+  page (int, default=1)
+  page_size (int, default=20, max=100)
+  tag_id, keyword, file_type, parse_status, source
+  start_time, end_time (RFC3339 format)
+
+Response: {data: [...], total, page, page_size}
+
+Errors: 400, 401, 403, 404
+
+================================================================================
+
+AUTHENTICATION
+
+Bearer Token: Authorization: Bearer <jwt>
+  Source: POST /auth/login
+  Contains: user_id, tenant_id, role claims
+
+API Key: X-API-Key: sk_live_<key>
+  Source: POST /tenants/:id/api-key
+  No expiration (until rotated)
+
+CORS Headers Allowed:
+  Origin, Content-Type, Accept, Authorization, X-API-Key, X-Request-ID
+
+================================================================================
+
+AUTHORIZATION ROLES
+
+Viewer:      Read (KB: list/get, Knowledge: list/get/download/preview)
+Contributor: Read, Create (KB, Knowledge), Update/Delete own
+Editor:      Full CRUD own items
+Admin:       Full CRUD any items in tenant
+
+================================================================================
+
+HTTP STATUS CODES
+
+200 OK                    Success
+201 Created               Resource created
+400 Bad Request           Invalid parameters
+401 Unauthorized          Auth required
+403 Forbidden             Insufficient permissions
+404 Not Found             Resource not found
+409 Conflict              Duplicate/version conflict
+500 Internal Server Error Server error
+
+================================================================================
+
+STORAGE PROVIDERS
+
+local  - Local file system (default)
+minio  - MinIO S3-compatible
+cos    - Tencent COS
+tos    - Tencent TOS
+
+Restrictions: STORAGE_ALLOW_LIST env var
+
+================================================================================
+
+ASYNCHRONOUS OPERATIONS
+
+POST /knowledge-bases/copy                 KB cloning
+DELETE /knowledge/:id                      Document deletion
+DELETE /knowledge-bases/:id/knowledge      Clear KB contents
+
+Track Progress: GET /knowledge-bases/copy/progress/:task_id
+
+Response: {task_id, status, progress, message, created_at, updated_at}
+
+Status Values: pending, processing, completed, failed
+

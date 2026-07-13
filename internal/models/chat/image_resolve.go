@@ -86,6 +86,15 @@ func isMultimodalNotSupportedError(err error) bool {
 		(strings.Contains(msg, "not support") || strings.Contains(msg, "unsupported") || strings.Contains(msg, "400"))
 }
 
+// isRateLimitError checks if an error is a 429 Too Many Requests rate limit error.
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") || strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests")
+}
+
 // stripImagesFromMessages returns a copy of messages with all image data removed.
 func stripImagesFromMessages(messages []Message) []Message {
 	cleaned := make([]Message, len(messages))
