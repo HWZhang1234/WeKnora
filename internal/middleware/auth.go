@@ -228,6 +228,13 @@ func Auth(
 
 			// 通过 TenantID 关联查询用户；找不到时构造系统虚拟用户，
 			// 确保所有依赖 UserContextKey 的下游 handler 正常工作。
+			//
+			// 如果调用方通过 X-User-Id header 传递了业务用户 ID（例如
+			// 其他系统通过 MCP 调用时透传当前操作人），则优先使用该 ID
+			// 作为 context 中的 userID，这样下游 MCP 工具（如 search_chunks）
+			// 可以直接从 context 获取 usid 而无需调用方显式传参。
+			xUserID := strings.TrimSpace(c.GetHeader("X-User-Id"))
+
 			user, err := userService.GetUserByTenantID(c.Request.Context(), tenantID)
 			if err != nil || user == nil {
 				// Synthetic user. The "system-<tenantID>" shape is recognised
@@ -244,6 +251,13 @@ func Auth(
 					IsActive: true,
 				}
 				log.Printf("No user found for tenant %d via API key, using synthetic system user %s", tenantID, user.ID)
+			}
+
+			// X-User-Id header 优先：允许外部系统通过 API-Key 认证后，
+			// 透传实际操作人的业务 ID（usid），用于权限范围判定。
+			if xUserID != "" {
+				user.ID = xUserID
+				log.Printf("API-Key auth: using X-User-Id header value %q as userID for tenant %d", xUserID, tenantID)
 			}
 			// API-Key 走的是程序化全租户访问，固定授予 Admin 角色：可以做几乎所有事情，
 			// 但保留 Owner-only 操作（删除租户、修改租户级配置）的边界。

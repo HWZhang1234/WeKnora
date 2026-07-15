@@ -98,8 +98,8 @@ type Tenant struct {
 	RetrieverEngines RetrieverEngines `yaml:"retriever_engines"   json:"retriever_engines"   gorm:"type:json"`
 	// Business
 	Business string `yaml:"business"            json:"business"`
-	// Storage quota (Bytes), default is 10GB, including vector, original file, text, index, etc.
-	StorageQuota int64 `yaml:"storage_quota"       json:"storage_quota"       gorm:"default:10737418240"`
+	// Storage quota (Bytes), default is 200GB, including vector, original file, text, index, etc.
+	StorageQuota int64 `yaml:"storage_quota"       json:"storage_quota"       gorm:"default:214748364800"`
 	// Storage used (Bytes)
 	StorageUsed int64 `yaml:"storage_used"        json:"storage_used"        gorm:"default:0"`
 	// Global Context configuration for this tenant (default for all sessions)
