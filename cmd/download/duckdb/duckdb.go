@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
@@ -23,6 +24,14 @@ func downloadExtensions() {
 	}
 	defer sqlDB.Close()
 
+	// If HTTPS_PROXY or HTTP_PROXY is set, configure DuckDB's internal HTTP
+	// client to use it (DuckDB does not read standard env vars).
+	if proxy := getProxy(); proxy != "" {
+		if _, err := sqlDB.ExecContext(ctx, fmt.Sprintf("SET http_proxy='%s';", proxy)); err != nil {
+			fmt.Fprintf(os.Stderr, "WARN: failed to set DuckDB http_proxy: %v\n", err)
+		}
+	}
+
 	for _, ext := range duckdbExtensions {
 		if _, err := sqlDB.ExecContext(ctx, fmt.Sprintf("INSTALL %s;", ext)); err != nil {
 			panic(fmt.Errorf("failed to install %s extension: %w", ext, err))
@@ -31,6 +40,13 @@ func downloadExtensions() {
 			panic(fmt.Errorf("failed to load %s extension: %w", ext, err))
 		}
 	}
+}
+
+func getProxy() string {
+	if p := os.Getenv("HTTPS_PROXY"); p != "" {
+		return p
+	}
+	return os.Getenv("HTTP_PROXY")
 }
 
 func main() {

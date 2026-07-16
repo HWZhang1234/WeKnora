@@ -94,19 +94,19 @@ func (d *toolDeps) resolveScope(
 	return scope, nil
 }
 
-// registerTools registers all MCP tools on the given server.
+// registerTools registers MCP tools on the given server.
 func registerTools(server *mcpsdk.Server, deps *toolDeps) {
-	addKBList(server, deps)
-	addKBView(server, deps)
-	addDocList(server, deps)
-	addDocView(server, deps)
-	addDocDownload(server, deps)
+	// addKBList(server, deps)
+	// addKBView(server, deps)
+	// addDocList(server, deps)
+	// addDocView(server, deps)
+	// addDocDownload(server, deps)
 	addSearchChunksFromSingleKB(server, deps)
 	addSearchChunksFromAllKB(server, deps)
-	addChat(server, deps)
-	addAgentList(server, deps)
-	addAgentInvoke(server, deps)
-	addChunkList(server, deps)
+	// addChat(server, deps)
+	// addAgentList(server, deps)
+	// addAgentInvoke(server, deps)
+	// addChunkList(server, deps)
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -334,7 +334,7 @@ func addDocDownload(server *mcpsdk.Server, deps *toolDeps) {
 // ---- search_chunks_from_single_kb -------------------------------------------
 
 type searchFromSingleKBInput struct {
-	KBID   string   `json:"kb_id" jsonschema:"required; the knowledge base ID to search in"`
+	KBName string   `json:"kb_name" jsonschema:"required; the knowledge base name to search in"`
 	Query  string   `json:"query" jsonschema:"required; natural-language search query"`
 	Limit  int      `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
 	DocIDs []string `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs within the KB"`
@@ -343,7 +343,7 @@ type searchFromSingleKBInput struct {
 func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "search_chunks_from_single_kb",
-		Description: "Hybrid search (vector + keyword) within a single knowledge base. The user identity is determined by the X-User-Id header; the search is permitted only if the user has access to the specified KB. Returns the most relevant text chunks with scores.",
+		Description: "Hybrid search (vector + keyword) within a single knowledge base identified by name. The user identity is determined by the X-User-Id header; the search is permitted only if the user has access to the specified KB. Returns the most relevant text chunks with scores.",
 		Annotations: &mcpsdk.ToolAnnotations{
 			Title:           "Search Chunks (Single KB)",
 			DestructiveHint: bptr(false),
@@ -352,8 +352,8 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			OpenWorldHint:   bptr(false),
 		},
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in searchFromSingleKBInput) (*mcpsdk.CallToolResult, any, error) {
-		if in.KBID == "" {
-			return errorResult("kb_id is required"), nil, nil
+		if in.KBName == "" {
+			return errorResult("kb_name is required"), nil, nil
 		}
 		if in.Query == "" {
 			return errorResult("query is required"), nil, nil
@@ -368,13 +368,39 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			limit = 10
 		}
 
+		// Resolve KB name to ID by listing all KBs and matching by name.
+		allKBs, err := deps.kbService.ListKnowledgeBases(ctx)
+		if err != nil {
+			return errorResult(fmt.Sprintf("failed to list knowledge bases: %v", err)), nil, nil
+		}
+		var matched []*struct{ id, name string }
+		for _, kb := range allKBs {
+			if strings.EqualFold(kb.Name, in.KBName) {
+				matched = append(matched, &struct{ id, name string }{id: kb.ID, name: kb.Name})
+			}
+		}
+		if len(matched) == 0 {
+			return errorResult(fmt.Sprintf("knowledge base %q not found", in.KBName)), nil, nil
+		}
+		if len(matched) > 1 {
+			ids := make([]string, len(matched))
+			for i, m := range matched {
+				ids[i] = m.id
+			}
+			return errorResult(fmt.Sprintf(
+				"multiple knowledge bases found with name %q (ids: %s); please use search_chunks_from_all_kb or contact admin to rename duplicates",
+				in.KBName, strings.Join(ids, ", "),
+			)), nil, nil
+		}
+		kbID := matched[0].id
+
 		// Verify the user has permission for this specific KB.
-		scope, err := deps.resolveScope(ctx, usid, []string{in.KBID})
+		scope, err := deps.resolveScope(ctx, usid, []string{kbID})
 		if err != nil {
 			return errorResult(fmt.Sprintf("failed to resolve search scope: %v", err)), nil, nil
 		}
 		if len(scope) == 0 {
-			return errorResult(fmt.Sprintf("access denied: user %q does not have permission to search KB %q", usid, in.KBID)), nil, nil
+			return errorResult(fmt.Sprintf("access denied: user %q does not have permission to search KB %q", usid, in.KBName)), nil, nil
 		}
 
 		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs)

@@ -28,7 +28,9 @@ RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/download cmd/download
-RUN go run cmd/download/duckdb/duckdb.go
+RUN HTTP_PROXY=http://secure-proxy2.qualcomm.com:9090 \
+    HTTPS_PROXY=http://secure-proxy2.qualcomm.com:9090 \
+    go run cmd/download/duckdb/duckdb.go
 COPY . .
 
 # Get version and commit info for build injection
