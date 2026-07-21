@@ -36,6 +36,13 @@ type EmbedderPooler interface {
 	BatchEmbedWithPool(ctx context.Context, model Embedder, texts []string) ([][]float32, error)
 }
 
+// APIKeyOverridable allows overriding the API key after construction.
+// Used by the file-upload flow to inject a per-request key from the caller,
+// so that different upload tasks can use their own keys to avoid rate limits.
+type APIKeyOverridable interface {
+	SetAPIKey(key string)
+}
+
 // EmbedderType represents the embedder type
 type EmbedderType string
 

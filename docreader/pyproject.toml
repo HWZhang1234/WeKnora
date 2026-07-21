@@ -5,7 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10.18"
 dependencies = [
-    "beautifulsoup4>=4.14.2",
+    "beautifulsoup4>=4.11.1",
+    "extract-msg>=0.53.1",
     "grpcio>=1.78.0",
     "grpcio-health-checking>=1.78.0",
     "grpcio-tools>=1.78.0",

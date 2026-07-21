@@ -4775,6 +4775,24 @@ const docTemplate = `{
                         "description": "启用多模态处理",
                         "name": "enable_multimodel",
                         "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "分类ID",
+                        "name": "tag_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "渠道标识",
+                        "name": "channel",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义API key，覆盖本次文件处理的embedding和summary默认key",
+                        "name": "api_key",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -17136,7 +17154,7 @@ const docTemplate = `{
                     ]
                 },
                 "storage_quota": {
-                    "description": "Storage quota (Bytes), default is 10GB, including vector, original file, text, index, etc.",
+                    "description": "Storage quota (Bytes), default is 200GB, including vector, original file, text, index, etc.",
                     "type": "integer"
                 },
                 "storage_used": {

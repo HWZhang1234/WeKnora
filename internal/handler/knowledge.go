@@ -254,6 +254,9 @@ func (h *KnowledgeHandler) enqueueKnowledgeListDelete(
 // @Param        fileName          formData  string  false  "自定义文件名"
 // @Param        metadata          formData  string  false  "元数据JSON"
 // @Param        enable_multimodel formData  bool    false  "启用多模态处理"
+// @Param        tag_id            formData  string  false  "分类ID"
+// @Param        channel           formData  string  false  "渠道标识"
+// @Param        api_key           formData  string  false  "自定义API key，覆盖本次文件处理的embedding和summary默认key"
 // @Success      200               {object}  map[string]interface{}  "创建的知识"
 // @Failure      400               {object}  errors.AppError         "请求参数错误"
 // @Failure      409               {object}  map[string]interface{}  "文件重复"
@@ -343,9 +346,10 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 	}
 
 	channel := c.PostForm("channel")
+	apiKeyOverride := c.PostForm("api_key")
 
 	// Create knowledge entry from the file
-	knowledge, err := h.kgService.CreateKnowledgeFromFile(ctx, kbID, file, metadata, enableMultimodel, customFileName, tagID, channel)
+	knowledge, err := h.kgService.CreateKnowledgeFromFile(ctx, kbID, file, metadata, enableMultimodel, customFileName, tagID, channel, apiKeyOverride)
 	// Check for duplicate knowledge error
 	if err != nil {
 		if h.handleDuplicateKnowledgeError(c, err, knowledge, "file") {

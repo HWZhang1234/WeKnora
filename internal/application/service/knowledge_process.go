@@ -162,8 +162,9 @@ type ProcessChunksOptions struct {
 	// ParentChunks holds parent chunk data when parent-child chunking is enabled.
 	// When set, the chunks passed to processChunks are child chunks, and each
 	// child's ParentIndex references an entry in this slice.
-	ParentChunks []types.ParsedParentChunk
-	Metadata     map[string]string
+	ParentChunks   []types.ParsedParentChunk
+	Metadata       map[string]string
+	APIKeyOverride string // per-request API key override for embedding
 }
 
 // finalizeIndexedKnowledgeState makes a document retrievable as soon as chunks
@@ -286,6 +287,12 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 			logger.GetLogger(ctx).WithField("error", err).Errorf("processChunks get embedding model failed")
 			span.RecordError(err)
 			return
+		}
+		// Apply per-request API key override for embedding
+		if options.APIKeyOverride != "" {
+			if overridable, ok := embeddingModel.(embedding.APIKeyOverridable); ok {
+				overridable.SetAPIKey(options.APIKeyOverride)
+			}
 		}
 	} else {
 		logger.Infof(ctx, "Vector/keyword indexing disabled for KB %s, skipping embedding model", kb.ID)
@@ -2703,6 +2710,11 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	if payload.Language != "" {
 		ctx = context.WithValue(ctx, types.LanguageContextKey, payload.Language)
 	}
+	// Inject per-request API key override into context so that GetChatModel
+	// (used for summary generation) picks it up via the existing LLMOverride mechanism.
+	if payload.APIKeyOverride != "" {
+		ctx = context.WithValue(ctx, types.LLMOverrideContextKey, types.LLMOverride{APIKey: payload.APIKeyOverride})
+	}
 
 	// 获取任务重试信息，用于判断是否是最后一次重试
 	retryCount, _ := asynq.GetRetryCount(ctx)
@@ -2947,6 +2959,7 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		passageOpts := ProcessChunksOptions{
 			EnableQuestionGeneration: payload.EnableQuestionGeneration,
 			QuestionCount:            payload.QuestionCount,
+			APIKeyOverride:           payload.APIKeyOverride,
 		}
 		s.processChunks(ctx, kb, knowledge, passageChunks, passageOpts)
 		return nil
@@ -3052,6 +3065,7 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		QuestionCount:            payload.QuestionCount,
 		EnableMultimodel:         payload.EnableMultimodel,
 		StoredImages:             storedImages,
+		APIKeyOverride:           payload.APIKeyOverride,
 	}
 
 	if convertResult != nil {

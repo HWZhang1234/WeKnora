@@ -87,6 +87,11 @@ func (e *ZhipuEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *ZhipuEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 // Embed converts text to vector
 func (e *ZhipuEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	for range 3 {

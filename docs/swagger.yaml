@@ -2975,7 +2975,7 @@ definitions:
         description: 'Storage engine config: parameters for Local, MinIO, COS. Used
           for document/file storage and docreader.'
       storage_quota:
-        description: Storage quota (Bytes), default is 10GB, including vector, original
+        description: Storage quota (Bytes), default is 200GB, including vector, original
           file, text, index, etc.
         type: integer
       storage_used:
@@ -7833,6 +7833,18 @@ paths:
         in: formData
         name: enable_multimodel
         type: boolean
+      - description: 分类ID
+        in: formData
+        name: tag_id
+        type: string
+      - description: 渠道标识
+        in: formData
+        name: channel
+        type: string
+      - description: 自定义API key，覆盖本次文件处理的embedding和summary默认key
+        in: formData
+        name: api_key
+        type: string
       produces:
       - application/json
       responses:

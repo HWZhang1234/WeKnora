@@ -33,6 +33,11 @@ func (e *NvidiaEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *NvidiaEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 // NvidiaEmbedRequest represents an NVIDIA embedding request
 type NvidiaEmbedRequest struct {
 	Model                string   `json:"model"`

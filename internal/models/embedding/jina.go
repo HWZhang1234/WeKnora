@@ -33,6 +33,11 @@ func (e *JinaEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *JinaEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 // JinaEmbedRequest represents a Jina embedding request
 // Note: Jina uses 'truncate' (boolean) instead of 'truncate_prompt_tokens' (integer)
 type JinaEmbedRequest struct {

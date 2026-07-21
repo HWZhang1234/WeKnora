@@ -34,6 +34,11 @@ func (e *AzureOpenAIEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *AzureOpenAIEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 type azureOpenAIEmbedRequest struct {
 	Model          string   `json:"model"`
 	Input          []string `json:"input"`

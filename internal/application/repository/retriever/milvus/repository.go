@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -77,6 +78,18 @@ func NewMilvusRetrieveEngineRepository(client *client.Client, indexCfg *types.In
 		shardsNum:          indexCfg.GetShardsNum(0),
 		replicaNumber:      indexCfg.GetReplicaNumber(0),
 	}
+
+	// Initialize global write concurrency limiter.
+	// MILVUS_WRITE_CONCURRENCY controls how many Upsert calls can run in
+	// parallel across all document processing tasks. Default 10.
+	writeConcurrency := 10
+	if v := os.Getenv("MILVUS_WRITE_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			writeConcurrency = n
+		}
+	}
+	res.writeSem = make(chan struct{}, writeConcurrency)
+	log.Infof("[Milvus] Write concurrency limit: %d", writeConcurrency)
 
 	log.Info("[Milvus] Successfully initialized repository")
 	return res
@@ -260,6 +273,14 @@ func (m *milvusRepository) Save(ctx context.Context,
 	embeddingDB.ID = uuid.New().String()
 	opts := createUpsert(collectionName, []*MilvusVectorEmbedding{embeddingDB})
 
+	// Acquire global write semaphore to limit Milvus pressure.
+	select {
+	case m.writeSem <- struct{}{}:
+		defer func() { <-m.writeSem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	_, err := m.client.Upsert(ctx, opts)
 	if err != nil {
 		log.Errorf("[Milvus] Failed to save index: %v", err)
@@ -319,7 +340,15 @@ func (m *milvusRepository) BatchSave(ctx context.Context,
 			embeddingDBList = append(embeddingDBList, embeddingDB)
 		}
 		opts := createUpsert(collectionName, embeddingDBList)
+
+		// Acquire global write semaphore to limit Milvus pressure.
+		select {
+		case m.writeSem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 		_, err := m.client.Upsert(ctx, opts)
+		<-m.writeSem // release immediately after upsert
 		if err != nil {
 			log.Errorf("[Milvus] Failed to execute batch operation for dimension %d: %v", dimension, err)
 			return fmt.Errorf("failed to batch save (dimension %d): %w", dimension, err)
@@ -482,7 +511,14 @@ func (m *milvusRepository) updateChunkEnabledStatusInCollection(
 	}
 
 	req := createUpsert(collectionName, upsertEmbeddings)
-	if _, err := m.client.Upsert(ctx, req); err != nil {
+	select {
+	case m.writeSem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	_, err = m.client.Upsert(ctx, req)
+	<-m.writeSem
+	if err != nil {
 		return err
 	}
 	return nil
@@ -566,7 +602,13 @@ func (m *milvusRepository) BatchUpdateChunkTagID(ctx context.Context, chunkTagMa
 			}
 			if len(upsertEmbeddings) > 0 {
 				req := createUpsert(collectionName, upsertEmbeddings)
+				select {
+				case m.writeSem <- struct{}{}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 				_, err := m.client.Upsert(ctx, req)
+				<-m.writeSem
 				if err != nil {
 					log.Warnf("[Milvus] Failed to update chunks in %s: %v", collectionName, err)
 					continue
@@ -989,7 +1031,13 @@ func (m *milvusRepository) CopyIndices(ctx context.Context,
 		}
 		if len(targetEmbeddings) > 0 {
 			opts := createUpsert(collectionName, targetEmbeddings)
+			select {
+			case m.writeSem <- struct{}{}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			_, err := m.client.Upsert(ctx, opts)
+			<-m.writeSem
 			if err != nil {
 				log.Errorf("[Milvus] Failed to batch upsert target points: %v", err)
 				return err

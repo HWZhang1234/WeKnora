@@ -96,6 +96,11 @@ func (e *GeminiEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *GeminiEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 func (e *GeminiEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	embeddings, err := e.BatchEmbed(ctx, []string{text})
 	if err != nil {

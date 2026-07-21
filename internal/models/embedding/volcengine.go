@@ -39,6 +39,11 @@ func (e *VolcengineEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *VolcengineEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 // VolcengineEmbedRequest represents a Volcengine Ark multimodal embedding request
 type VolcengineEmbedRequest struct {
 	Model string                   `json:"model"`

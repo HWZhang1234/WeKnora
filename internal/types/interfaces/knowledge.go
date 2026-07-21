@@ -13,6 +13,7 @@ import (
 type KnowledgeService interface {
 	// CreateKnowledgeFromFile creates knowledge from a file.
 	// channel identifies the ingestion channel (e.g. "web", "api", "wechat"); empty defaults to "web".
+	// apiKeyOverride, when non-empty, overrides the default embedding/summary API key for this task only.
 	CreateKnowledgeFromFile(
 		ctx context.Context,
 		kbID string,
@@ -22,6 +23,7 @@ type KnowledgeService interface {
 		customFileName string,
 		tagID string,
 		channel string,
+		apiKeyOverride string,
 	) (*types.Knowledge, error)
 	// CreateKnowledgeFromURL creates knowledge from a URL.
 	// When fileName or fileType is provided (or the URL path has a known file extension),

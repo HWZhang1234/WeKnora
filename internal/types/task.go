@@ -84,6 +84,10 @@ type DocumentProcessPayload struct {
 	// retried spans overwrite the previous attempt's row rather than
 	// fan out into a new attempt for every retry.
 	Attempt int `json:"attempt,omitempty"`
+	// APIKeyOverride is a per-request API key passed from the upload interface.
+	// When non-empty, it overrides the default embedding and summary model keys
+	// for this document processing task only.
+	APIKeyOverride string `json:"api_key_override,omitempty"`
 }
 
 // FAQImportPayload represents the FAQ import task payload (including dry run mode)

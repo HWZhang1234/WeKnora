@@ -39,6 +39,11 @@ func (e *AliyunEmbedder) SetCustomHeaders(headers map[string]string) {
 	e.customHeaders = headers
 }
 
+// SetAPIKey overrides the primary API key used for embedding requests.
+func (e *AliyunEmbedder) SetAPIKey(key string) {
+	e.apiKey = key
+}
+
 // AliyunEmbedRequest represents an Aliyun DashScope multimodal embedding request
 type AliyunEmbedRequest struct {
 	Model string           `json:"model"`

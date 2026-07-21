@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from docreader.parser.base_parser import BaseParser
 from docreader.parser.doc_parser import DocParser
 from docreader.parser.docx2_parser import Docx2Parser
+from docreader.parser.email_parser import EmlParser, MsgParser
 from docreader.parser.excel_parser import ExcelParser
 from docreader.parser.image_parser import ImageParser
 from docreader.parser.markdown_parser import MarkdownParser
@@ -132,6 +133,8 @@ def _build_default_registry() -> ParserEngineRegistry:
             "xlsx": ExcelParser,
             "xls": ExcelParser,
             "xlsm": ExcelParser,
+            "eml": EmlParser,
+            "msg": MsgParser,
             **_image_types,
         },
         description="内置解析引擎",

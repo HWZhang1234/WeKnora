@@ -25,7 +25,7 @@ import (
 
 // CreateKnowledgeFromFile creates a knowledge entry from an uploaded file
 func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
-	kbID string, file *multipart.FileHeader, metadata map[string]string, enableMultimodel *bool, customFileName string, tagID string, channel string,
+	kbID string, file *multipart.FileHeader, metadata map[string]string, enableMultimodel *bool, customFileName string, tagID string, channel string, apiKeyOverride string,
 ) (*types.Knowledge, error) {
 	logger.Info(ctx, "Start creating knowledge from file")
 
@@ -300,6 +300,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		EnableQuestionGeneration: enableQuestionGeneration,
 		QuestionCount:            questionCount,
 		Language:                 lang,
+		APIKeyOverride:           apiKeyOverride,
 	}
 
 	langfuse.InjectTracing(ctx, &taskPayload)

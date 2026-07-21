@@ -138,6 +138,7 @@ func TestCreateKnowledgeFromFileDoesNotPersistWhenStorageSaveFails(t *testing.T)
 		"",
 		"",
 		"",
+		"",
 	)
 
 	require.Error(t, err)
@@ -165,6 +166,7 @@ func TestCreateKnowledgeFromFilePersistsStoredFilePathOnCreate(t *testing.T) {
 		newMultipartFileHeader(t, "doc.txt", "hello"),
 		nil,
 		nil,
+		"",
 		"",
 		"",
 		"",
@@ -198,6 +200,7 @@ func TestCreateKnowledgeFromFileDeletesStoredFileWhenCreateFails(t *testing.T) {
 		newMultipartFileHeader(t, "doc.txt", "hello"),
 		nil,
 		nil,
+		"",
 		"",
 		"",
 		"",

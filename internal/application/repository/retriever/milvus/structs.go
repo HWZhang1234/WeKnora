@@ -16,6 +16,10 @@ type milvusRepository struct {
 	replicaNumber      int // 0 = use Milvus default (1); set at LoadCollection time
 	// Cache for initialized collections (dimension -> true)
 	initializedCollections sync.Map
+	// writeSem limits global concurrent Milvus write (Upsert) operations across
+	// all document processing tasks. This prevents multiple concurrent uploads
+	// from overwhelming Milvus with too many parallel writes.
+	writeSem chan struct{}
 }
 
 type MilvusVectorEmbedding struct {

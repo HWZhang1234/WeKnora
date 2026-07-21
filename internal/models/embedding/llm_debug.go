@@ -36,6 +36,13 @@ func (d *debugEmbedder) GetModelName() string  { return d.inner.GetModelName() }
 func (d *debugEmbedder) GetDimensions() int    { return d.inner.GetDimensions() }
 func (d *debugEmbedder) GetModelID() string    { return d.inner.GetModelID() }
 
+// SetAPIKey forwards the override to the wrapped embedder.
+func (d *debugEmbedder) SetAPIKey(key string) {
+	if o, ok := d.inner.(APIKeyOverridable); ok {
+		o.SetAPIKey(key)
+	}
+}
+
 func singleToDouble(v []float32) [][]float32 {
 	if v == nil {
 		return nil

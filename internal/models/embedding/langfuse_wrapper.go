@@ -82,6 +82,13 @@ func (l *langfuseEmbedder) GetModelName() string { return l.inner.GetModelName()
 func (l *langfuseEmbedder) GetDimensions() int   { return l.inner.GetDimensions() }
 func (l *langfuseEmbedder) GetModelID() string   { return l.inner.GetModelID() }
 
+// SetAPIKey forwards the override to the wrapped embedder.
+func (l *langfuseEmbedder) SetAPIKey(key string) {
+	if o, ok := l.inner.(APIKeyOverridable); ok {
+		o.SetAPIKey(key)
+	}
+}
+
 // approxEmbeddingUsage estimates input tokens as ~rune_count / 4, matching the
 // rule of thumb OpenAI uses in their tokenizer docs. This is purely for cost
 // reporting — Langfuse lets users define per-model cost multipliers, so the
