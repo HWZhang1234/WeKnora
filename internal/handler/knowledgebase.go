@@ -876,6 +876,11 @@ func (h *KnowledgeBaseHandler) DeleteKnowledgeBase(c *gin.Context) {
 		return
 	}
 
+	if kb.Name == "QCCommonDoc" {
+		c.Error(apperrors.NewForbiddenError("QCCommonDoc is a protected knowledge base and cannot be deleted"))
+		return
+	}
+
 	// Only owner (admin with matching tenant) can delete knowledge base
 	tenantID, _ := c.Get(types.TenantIDContextKey.String())
 	if kb.TenantID != tenantID.(uint64) || permission != types.OrgRoleAdmin {

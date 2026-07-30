@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -334,7 +333,8 @@ func addDocDownload(server *mcpsdk.Server, deps *toolDeps) {
 // ---- search_chunks_from_single_kb -------------------------------------------
 
 type searchFromSingleKBInput struct {
-	KBName string   `json:"kb_name" jsonschema:"required; the knowledge base name to search in"`
+	KBName string   `json:"kb_name,omitempty" jsonschema:"the knowledge base name to search in; provide either kb_name or kb_id"`
+	KBID   string   `json:"kb_id,omitempty" jsonschema:"the knowledge base ID to search in; provide either kb_name or kb_id"`
 	Query  string   `json:"query" jsonschema:"required; natural-language search query"`
 	Limit  int      `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
 	DocIDs []string `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs within the KB"`
@@ -343,7 +343,7 @@ type searchFromSingleKBInput struct {
 func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "search_chunks_from_single_kb",
-		Description: "Hybrid search (vector + keyword) within a single knowledge base identified by name. The user identity is determined by the X-User-Id header; the search is permitted only if the user has access to the specified KB. Returns the most relevant text chunks with scores.",
+		Description: "Hybrid search (vector + keyword) within a single knowledge base identified by name or ID (provide either kb_name or kb_id). The user identity is determined by the X-User-Id header; the search is permitted only if the user has access to the specified KB. Returns the most relevant text chunks with scores.",
 		Annotations: &mcpsdk.ToolAnnotations{
 			Title:           "Search Chunks (Single KB)",
 			DestructiveHint: bptr(false),
@@ -352,8 +352,8 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			OpenWorldHint:   bptr(false),
 		},
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in searchFromSingleKBInput) (*mcpsdk.CallToolResult, any, error) {
-		if in.KBName == "" {
-			return errorResult("kb_name is required"), nil, nil
+		if in.KBName == "" && in.KBID == "" {
+			return errorResult("either kb_name or kb_id is required"), nil, nil
 		}
 		if in.Query == "" {
 			return errorResult("query is required"), nil, nil
@@ -368,31 +368,36 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			limit = 10
 		}
 
-		// Resolve KB name to ID by listing all KBs and matching by name.
-		allKBs, err := deps.kbService.ListKnowledgeBases(ctx)
-		if err != nil {
-			return errorResult(fmt.Sprintf("failed to list knowledge bases: %v", err)), nil, nil
-		}
-		var matched []*struct{ id, name string }
-		for _, kb := range allKBs {
-			if strings.EqualFold(kb.Name, in.KBName) {
-				matched = append(matched, &struct{ id, name string }{id: kb.ID, name: kb.Name})
+		var kbID string
+		if in.KBID != "" {
+			kbID = in.KBID
+		} else {
+			// Resolve KB name to ID by listing all KBs and matching by name.
+			allKBs, err := deps.kbService.ListKnowledgeBases(ctx)
+			if err != nil {
+				return errorResult(fmt.Sprintf("failed to list knowledge bases: %v", err)), nil, nil
 			}
-		}
-		if len(matched) == 0 {
-			return errorResult(fmt.Sprintf("knowledge base %q not found", in.KBName)), nil, nil
-		}
-		if len(matched) > 1 {
-			ids := make([]string, len(matched))
-			for i, m := range matched {
-				ids[i] = m.id
+			var matched []*struct{ id, name string }
+			for _, kb := range allKBs {
+				if strings.EqualFold(kb.Name, in.KBName) {
+					matched = append(matched, &struct{ id, name string }{id: kb.ID, name: kb.Name})
+				}
 			}
-			return errorResult(fmt.Sprintf(
-				"multiple knowledge bases found with name %q (ids: %s); please use search_chunks_from_all_kb or contact admin to rename duplicates",
-				in.KBName, strings.Join(ids, ", "),
-			)), nil, nil
+			if len(matched) == 0 {
+				return errorResult(fmt.Sprintf("knowledge base %q not found", in.KBName)), nil, nil
+			}
+			if len(matched) > 1 {
+				ids := make([]string, len(matched))
+				for i, m := range matched {
+					ids[i] = m.id
+				}
+				return errorResult(fmt.Sprintf(
+					"multiple knowledge bases found with name %q (ids: %s); please use kb_id or search_chunks_from_all_kb",
+					in.KBName, strings.Join(ids, ", "),
+				)), nil, nil
+			}
+			kbID = matched[0].id
 		}
-		kbID := matched[0].id
 
 		// Verify the user has permission for this specific KB.
 		scope, err := deps.resolveScope(ctx, usid, []string{kbID})
@@ -400,7 +405,11 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			return errorResult(fmt.Sprintf("failed to resolve search scope: %v", err)), nil, nil
 		}
 		if len(scope) == 0 {
-			return errorResult(fmt.Sprintf("access denied: user %q does not have permission to search KB %q", usid, in.KBName)), nil, nil
+			kbRef := in.KBName
+			if kbRef == "" {
+				kbRef = in.KBID
+			}
+			return errorResult(fmt.Sprintf("access denied: user %q does not have permission to search KB %q", usid, kbRef)), nil, nil
 		}
 
 		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs)
@@ -507,61 +516,37 @@ func doSearch(
 		ChunkIndex     int     `json:"chunk_index"`
 	}
 
-	// Fan out one single-KB HybridSearch per KB in scope, concurrently.
-	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		all     []chunkResult
-		errs    []string
-		okCount int
-	)
+	// Single HybridSearch across all KBs in scope. By passing all KB IDs
+	// into one call, vector and keyword results are pooled before RRF
+	// fusion, producing a globally consistent ranking instead of merging
+	// independently-ranked per-KB lists.
 	params := types.SearchParams{
-		QueryText:    query,
-		MatchCount:   limit,
-		KnowledgeIDs: docIDs,
+		QueryText:             query,
+		MatchCount:            limit,
+		KnowledgeIDs:          docIDs,
+		KnowledgeBaseIDs:      scope,
+		SkipContextEnrichment: true,
 	}
-	for _, kbID := range scope {
-		wg.Add(1)
-		go func(kbID string) {
-			defer wg.Done()
-			hits, serr := deps.kbService.HybridSearch(ctx, kbID, params)
-			mu.Lock()
-			defer mu.Unlock()
-			if serr != nil {
-				errs = append(errs, fmt.Sprintf("%s: %v", kbID, serr))
-				return
-			}
-			okCount++
-			for _, r := range hits {
-				content := r.Content
-				if r.ImageInfo != "" {
-					content = searchutil.EnrichContentWithImageInfo(content, r.ImageInfo)
-				}
-				all = append(all, chunkResult{
-					ID:             r.ID,
-					KBID:           kbID,
-					Content:        content,
-					KnowledgeID:    r.KnowledgeID,
-					KnowledgeTitle: r.KnowledgeTitle,
-					Score:          r.Score,
-					ChunkIndex:     r.ChunkIndex,
-				})
-			}
-		}(kbID)
-	}
-	wg.Wait()
-
-	if okCount == 0 && len(errs) > 0 {
-		return errorResult(fmt.Sprintf("search failed for all %d knowledge base(s): %s",
-			len(errs), strings.Join(errs, "; "))), nil, nil
+	hits, err := deps.kbService.HybridSearch(ctx, scope[0], params)
+	if err != nil {
+		return errorResult(fmt.Sprintf("search failed: %v", err)), nil, nil
 	}
 
-	// Global sort by score desc, then truncate to the global top-K.
-	sort.SliceStable(all, func(i, j int) bool {
-		return all[i].Score > all[j].Score
-	})
-	if len(all) > limit {
-		all = all[:limit]
+	all := make([]chunkResult, 0, len(hits))
+	for _, r := range hits {
+		content := r.Content
+		if r.ImageInfo != "" {
+			content = searchutil.EnrichContentWithImageInfo(content, r.ImageInfo)
+		}
+		all = append(all, chunkResult{
+			ID:             r.ID,
+			KBID:           r.KnowledgeBaseID,
+			Content:        content,
+			KnowledgeID:    r.KnowledgeID,
+			KnowledgeTitle: r.KnowledgeTitle,
+			Score:          r.Score,
+			ChunkIndex:     r.ChunkIndex,
+		})
 	}
 
 	return successResult(map[string]any{

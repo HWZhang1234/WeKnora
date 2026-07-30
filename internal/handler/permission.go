@@ -515,7 +515,7 @@ func (h *PermissionHandler) AddCommonKB(c *gin.Context) {
 		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
 		return
 	}
-	if !h.requireSuperUser(c, req.OperatorUsid) {
+	if !h.requireKBManager(c, req.OperatorUsid, req.KBID) {
 		return
 	}
 	if err := h.svc.AddCommonKB(c.Request.Context(), req.KBID, req.Note); err != nil {
@@ -540,7 +540,7 @@ func (h *PermissionHandler) AddCommonKB(c *gin.Context) {
 func (h *PermissionHandler) RemoveCommonKB(c *gin.Context) {
 	operator := c.Query("operator_usid")
 	kbID := c.Param("kb_id")
-	if !h.requireSuperUser(c, operator) {
+	if !h.requireKBManager(c, operator, kbID) {
 		return
 	}
 	if err := h.svc.RemoveCommonKB(c.Request.Context(), kbID); err != nil {
