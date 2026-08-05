@@ -50,6 +50,12 @@ type PermissionRepository interface {
 	ListCommonKBs(ctx context.Context) ([]*types.CommonKB, error)
 	AddCommonKB(ctx context.Context, kbID, note string) error
 	RemoveCommonKB(ctx context.Context, kbID string) (bool, error)
+
+	// ---- new_dataset_admin ----
+	ListNewDatasetAdmins(ctx context.Context) ([]*types.NewDatasetAdmin, error)
+	AddNewDatasetAdmin(ctx context.Context, usid, note string) error
+	RemoveNewDatasetAdmin(ctx context.Context, usid string) (bool, error)
+	ReplaceNewDatasetAdmins(ctx context.Context, usids []string) error
 }
 
 // PermissionService wraps the repository with validation and the scope
@@ -94,4 +100,10 @@ type PermissionService interface {
 	AddCommonKB(ctx context.Context, kbID, note string) error
 	RemoveCommonKB(ctx context.Context, kbID string) error
 	ListCommonKBs(ctx context.Context) ([]*types.CommonKB, error)
+
+	// ---- new_dataset_admin management ----
+	ListNewDatasetAdmins(ctx context.Context) ([]*types.NewDatasetAdmin, error)
+	AddNewDatasetAdmins(ctx context.Context, usids []string) error
+	RemoveNewDatasetAdmin(ctx context.Context, usid string) error
+	ReplaceNewDatasetAdmins(ctx context.Context, usids []string) error
 }

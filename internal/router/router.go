@@ -990,6 +990,11 @@ func RegisterPermissionRoutes(r *gin.RouterGroup, h *handler.PermissionHandler, 
 		perms.POST("/common-kbs", g.Viewer(), h.AddCommonKB)
 		perms.DELETE("/common-kbs/:kb_id", g.Viewer(), h.RemoveCommonKB)
 		perms.GET("/common-kbs", g.Viewer(), h.ListCommonKBs)
+
+		perms.GET("/new-dataset-admins", g.Viewer(), h.ListNewDatasetAdmins)
+		perms.POST("/new-dataset-admins", g.Viewer(), h.AddNewDatasetAdmins)
+		perms.DELETE("/new-dataset-admins/:usid", g.Viewer(), h.RemoveNewDatasetAdmin)
+		perms.PUT("/new-dataset-admins", g.Viewer(), h.ReplaceNewDatasetAdmins)
 	}
 }
 

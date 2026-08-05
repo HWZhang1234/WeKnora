@@ -217,3 +217,43 @@ func (r *permissionRepository) RemoveCommonKB(ctx context.Context, kbID string) 
 	}
 	return res.RowsAffected > 0, nil
 }
+
+// ---- new_dataset_admin ----
+
+func (r *permissionRepository) ListNewDatasetAdmins(ctx context.Context) ([]*types.NewDatasetAdmin, error) {
+	var list []*types.NewDatasetAdmin
+	err := r.db.WithContext(ctx).Order("created_at ASC").Find(&list).Error
+	return list, err
+}
+
+func (r *permissionRepository) AddNewDatasetAdmin(ctx context.Context, usid, note string) error {
+	rec := &types.NewDatasetAdmin{Usid: usid, Note: note}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(rec).Error
+}
+
+func (r *permissionRepository) RemoveNewDatasetAdmin(ctx context.Context, usid string) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Where("usid = ?", usid).
+		Delete(&types.NewDatasetAdmin{})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
+func (r *permissionRepository) ReplaceNewDatasetAdmins(ctx context.Context, usids []string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("1=1").Delete(&types.NewDatasetAdmin{}).Error; err != nil {
+			return err
+		}
+		for _, usid := range usids {
+			rec := &types.NewDatasetAdmin{Usid: usid}
+			if err := tx.Create(rec).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

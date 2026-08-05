@@ -274,6 +274,45 @@ func (s *permissionService) ListCommonKBs(ctx context.Context) ([]*types.CommonK
 	return s.repo.ListCommonKBs(ctx)
 }
 
+// ---- new_dataset_admin management ----
+
+func (s *permissionService) ListNewDatasetAdmins(ctx context.Context) ([]*types.NewDatasetAdmin, error) {
+	return s.repo.ListNewDatasetAdmins(ctx)
+}
+
+func (s *permissionService) AddNewDatasetAdmins(ctx context.Context, usids []string) error {
+	for _, usid := range usids {
+		usid = strings.TrimSpace(usid)
+		if usid == "" {
+			continue
+		}
+		if err := s.repo.AddNewDatasetAdmin(ctx, usid, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *permissionService) RemoveNewDatasetAdmin(ctx context.Context, usid string) error {
+	usid = strings.TrimSpace(usid)
+	if usid == "" {
+		return ErrPermEmptyUsid
+	}
+	_, err := s.repo.RemoveNewDatasetAdmin(ctx, usid)
+	return err
+}
+
+func (s *permissionService) ReplaceNewDatasetAdmins(ctx context.Context, usids []string) error {
+	cleaned := make([]string, 0, len(usids))
+	for _, u := range usids {
+		u = strings.TrimSpace(u)
+		if u != "" {
+			cleaned = append(cleaned, u)
+		}
+	}
+	return s.repo.ReplaceNewDatasetAdmins(ctx, cleaned)
+}
+
 // dedupe returns the input with empty strings and duplicates removed, order
 // preserved by first occurrence.
 func dedupe(ids []string) []string {

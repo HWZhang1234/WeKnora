@@ -567,3 +567,103 @@ func (h *PermissionHandler) ListCommonKBs(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
+
+// ---- new_dataset_admin ---------------------------------------------------------
+
+// NewDatasetAdminRequest is the body for POST /permissions/new-dataset-admins.
+type NewDatasetAdminRequest struct {
+	Usids []string `json:"usids"`
+}
+
+// ListNewDatasetAdmins godoc
+// @Summary      List all new-dataset admins
+// @Description  Returns all usids that are allowed to create new datasets.
+// @Tags         Permission
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  apperrors.AppError
+// @Security     ApiKeyAuth
+// @Router       /permissions/new-dataset-admins [get]
+func (h *PermissionHandler) ListNewDatasetAdmins(c *gin.Context) {
+	list, err := h.svc.ListNewDatasetAdmins(c.Request.Context())
+	if err != nil {
+		mapPermError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+}
+
+// AddNewDatasetAdmins godoc
+// @Summary      Add new-dataset admin(s)
+// @Description  Grant one or more usids the right to create new datasets. Idempotent.
+// @Tags         Permission
+// @Accept       json
+// @Produce      json
+// @Param        body  body      NewDatasetAdminRequest  true  "usids to add"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  apperrors.AppError
+// @Security     ApiKeyAuth
+// @Router       /permissions/new-dataset-admins [post]
+func (h *PermissionHandler) AddNewDatasetAdmins(c *gin.Context) {
+	var req NewDatasetAdminRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	if len(req.Usids) == 0 {
+		c.Error(apperrors.NewBadRequestError("usids is required and must not be empty"))
+		return
+	}
+	if err := h.svc.AddNewDatasetAdmins(c.Request.Context(), req.Usids); err != nil {
+		mapPermError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// RemoveNewDatasetAdmin godoc
+// @Summary      Remove a new-dataset admin
+// @Description  Revoke a usid's right to create new datasets.
+// @Tags         Permission
+// @Produce      json
+// @Param        usid  path      string  true  "usid to remove"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  apperrors.AppError
+// @Security     ApiKeyAuth
+// @Router       /permissions/new-dataset-admins/{usid} [delete]
+func (h *PermissionHandler) RemoveNewDatasetAdmin(c *gin.Context) {
+	usid := c.Param("usid")
+	if usid == "" {
+		c.Error(apperrors.NewBadRequestError("usid path parameter is required"))
+		return
+	}
+	if err := h.svc.RemoveNewDatasetAdmin(c.Request.Context(), usid); err != nil {
+		mapPermError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ReplaceNewDatasetAdmins godoc
+// @Summary      Replace the entire new-dataset admin list
+// @Description  Atomically replace all new-dataset admins with the given usid list.
+// @Tags         Permission
+// @Accept       json
+// @Produce      json
+// @Param        body  body      NewDatasetAdminRequest  true  "complete usid list"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  apperrors.AppError
+// @Security     ApiKeyAuth
+// @Router       /permissions/new-dataset-admins [put]
+func (h *PermissionHandler) ReplaceNewDatasetAdmins(c *gin.Context) {
+	var req NewDatasetAdminRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	if err := h.svc.ReplaceNewDatasetAdmins(c.Request.Context(), req.Usids); err != nil {
+		mapPermError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

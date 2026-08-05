@@ -20,6 +20,8 @@ import (
 type OpenAIEmbedder struct {
 	apiKey               string
 	fallbackAPIKey       string // EMBEDDING_FALLBACK_API_KEY — used when primary key fails
+	fallbackBaseURL      string // EMBEDDING_FALLBACK_BASE_URL — independent fallback endpoint
+	fallbackModelName    string // EMBEDDING_FALLBACK_MODEL_NAME — model at the fallback endpoint
 	baseURL              string
 	modelName            string
 	truncatePromptTokens int
@@ -85,6 +87,8 @@ func NewOpenAIEmbedder(apiKey, baseURL, modelName string,
 	return &OpenAIEmbedder{
 		apiKey:               apiKey,
 		fallbackAPIKey:       os.Getenv("EMBEDDING_FALLBACK_API_KEY"),
+		fallbackBaseURL:      os.Getenv("EMBEDDING_FALLBACK_BASE_URL"),
+		fallbackModelName:    os.Getenv("EMBEDDING_FALLBACK_MODEL_NAME"),
 		baseURL:              baseURL,
 		modelName:            modelName,
 		httpClient:           client,
@@ -188,6 +192,15 @@ func (e *OpenAIEmbedder) doRequestWithRetry(ctx context.Context, jsonData []byte
 			continue
 		}
 
+		// Treat 5xx as retriable failures so fallback can kick in.
+		if resp.StatusCode >= 500 {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			logger.GetLogger(ctx).Errorf("OpenAIEmbedder request got %d (attempt %d/%d): %s", resp.StatusCode, i+1, e.maxRetries+1, string(body))
+			err = fmt.Errorf("embedding API server error (%d)", resp.StatusCode)
+			continue
+		}
+
 		return resp, nil
 	}
 
@@ -204,14 +217,52 @@ func (e *OpenAIEmbedder) doRequestWithRetry(ctx context.Context, jsonData []byte
 		secutils.ApplyCustomHeaders(req, e.customHeaders)
 
 		resp, err = e.httpClient.Do(req)
+		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			logger.GetLogger(ctx).Infof("OpenAIEmbedder fallback key succeeded")
+			return resp, nil
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
 		if err != nil {
-			return nil, fmt.Errorf("embedding fallback key: request failed: %w", err)
+			logger.GetLogger(ctx).Warnf("OpenAIEmbedder fallback key also failed: %v", err)
+		} else {
+			logger.GetLogger(ctx).Warnf("OpenAIEmbedder fallback key got status %d, trying fallback endpoint", resp.StatusCode)
+		}
+	}
+
+	// Fallback endpoint — completely independent URL + model (e.g. local Xinference).
+	if e.fallbackBaseURL != "" && e.fallbackModelName != "" {
+		logger.GetLogger(ctx).Warnf("OpenAIEmbedder switching to fallback endpoint: %s model=%s", e.fallbackBaseURL, e.fallbackModelName)
+
+		// Re-marshal request with fallback model name.
+		var origReq OpenAIEmbedRequest
+		_ = json.Unmarshal(jsonData, &origReq)
+		origReq.Model = e.fallbackModelName
+		origReq.TruncatePromptTokens = 0 // fallback model may not support this field
+		fallbackData, _ := json.Marshal(origReq)
+
+		fallbackURL := strings.TrimRight(e.fallbackBaseURL, "/") + "/embeddings"
+		var req *http.Request
+		req, err = http.NewRequestWithContext(ctx, "POST", fallbackURL, bytes.NewReader(fallbackData))
+		if err != nil {
+			return nil, fmt.Errorf("embedding fallback endpoint: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		// Fallback endpoint may not need auth, but send a placeholder just in case.
+		if e.fallbackAPIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+e.fallbackAPIKey)
+		}
+
+		resp, err = e.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("embedding fallback endpoint: request failed: %w", err)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
-			return nil, fmt.Errorf("embedding fallback key also rate limited (429)")
+			return nil, fmt.Errorf("embedding fallback endpoint also rate limited (429)")
 		}
-		logger.GetLogger(ctx).Infof("OpenAIEmbedder fallback key succeeded")
+		logger.GetLogger(ctx).Infof("OpenAIEmbedder fallback endpoint succeeded")
 		return resp, nil
 	}
 

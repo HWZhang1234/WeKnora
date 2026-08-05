@@ -83,3 +83,14 @@ type KBAclDisplay struct {
 
 // TableName pins the table to the migration's exact name.
 func (KBAclDisplay) TableName() string { return "kb_acl_display" }
+
+// NewDatasetAdmin is a usid allowed to create new datasets (knowledge bases)
+// from external applications. See migration 000062.
+type NewDatasetAdmin struct {
+	Usid      string    `json:"usid"       gorm:"column:usid;type:varchar(64);primaryKey"`
+	Note      string    `json:"note"       gorm:"column:note;type:varchar(255)"`
+	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+}
+
+// TableName pins the table to the migration's exact name.
+func (NewDatasetAdmin) TableName() string { return "new_dataset_admin" }
