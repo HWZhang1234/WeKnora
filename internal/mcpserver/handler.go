@@ -26,6 +26,7 @@ type MCPServerHandler struct {
 	sessionService   interfaces.SessionService
 	agentService     interfaces.CustomAgentService
 	permService      interfaces.PermissionService
+	caseService      interfaces.CaseService
 }
 
 // NewMCPServerHandler creates a new MCP server handler with the required service
@@ -37,6 +38,7 @@ func NewMCPServerHandler(
 	sessionService interfaces.SessionService,
 	agentService interfaces.CustomAgentService,
 	permService interfaces.PermissionService,
+	caseService interfaces.CaseService,
 ) *MCPServerHandler {
 	return &MCPServerHandler{
 		kbService:        kbService,
@@ -45,6 +47,7 @@ func NewMCPServerHandler(
 		sessionService:   sessionService,
 		agentService:     agentService,
 		permService:      permService,
+		caseService:      caseService,
 	}
 }
 
@@ -78,6 +81,7 @@ func (h *MCPServerHandler) Handle(c *gin.Context) {
 				sessionService:   h.sessionService,
 				agentService:     h.agentService,
 				permService:      h.permService,
+				caseService:      h.caseService,
 				tenantID:         tenantID,
 				userID:           userID,
 			}

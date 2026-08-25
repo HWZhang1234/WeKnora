@@ -26,6 +26,7 @@ type toolDeps struct {
 	sessionService   interfaces.SessionService
 	agentService     interfaces.CustomAgentService
 	permService      interfaces.PermissionService
+	caseService      interfaces.CaseService
 	tenantID         uint64
 	userID           string
 }
@@ -333,11 +334,12 @@ func addDocDownload(server *mcpsdk.Server, deps *toolDeps) {
 // ---- search_chunks_from_single_kb -------------------------------------------
 
 type searchFromSingleKBInput struct {
-	KBName string   `json:"kb_name,omitempty" jsonschema:"the knowledge base name to search in; provide either kb_name or kb_id"`
-	KBID   string   `json:"kb_id,omitempty" jsonschema:"the knowledge base ID to search in; provide either kb_name or kb_id"`
-	Query  string   `json:"query" jsonschema:"required; natural-language search query"`
-	Limit  int      `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
-	DocIDs []string `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs within the KB"`
+	KBName  string             `json:"kb_name,omitempty" jsonschema:"the knowledge base name to search in; provide either kb_name or kb_id"`
+	KBID    string             `json:"kb_id,omitempty" jsonschema:"the knowledge base ID to search in; provide either kb_name or kb_id"`
+	Query   string             `json:"query" jsonschema:"required; natural-language search query"`
+	Limit   int                `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
+	DocIDs  []string           `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs within the KB"`
+	Filters *types.CaseFilters `json:"filters,omitempty" jsonschema:"optional: strict Case attribute filters applied before semantic search"`
 }
 
 func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
@@ -412,16 +414,17 @@ func addSearchChunksFromSingleKB(server *mcpsdk.Server, deps *toolDeps) {
 			return errorResult(fmt.Sprintf("access denied: user %q does not have permission to search KB %q", usid, kbRef)), nil, nil
 		}
 
-		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs)
+		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs, in.Filters)
 	})
 }
 
 // ---- search_chunks_from_all_kb ----------------------------------------------
 
 type searchFromAllKBInput struct {
-	Query  string   `json:"query" jsonschema:"required; natural-language search query"`
-	Limit  int      `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
-	DocIDs []string `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs"`
+	Query   string             `json:"query" jsonschema:"required; natural-language search query"`
+	Limit   int                `json:"limit,omitempty" jsonschema:"max results (1..50); defaults to 10"`
+	DocIDs  []string           `json:"doc_ids,omitempty" jsonschema:"optional: restrict search to specific document IDs"`
+	Filters *types.CaseFilters `json:"filters,omitempty" jsonschema:"optional: strict Case attribute filters applied before semantic search"`
 }
 
 func addSearchChunksFromAllKB(server *mcpsdk.Server, deps *toolDeps) {
@@ -458,7 +461,7 @@ func addSearchChunksFromAllKB(server *mcpsdk.Server, deps *toolDeps) {
 			return successResult(map[string]any{"results": []any{}, "total": 0}), nil, nil
 		}
 
-		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs)
+		return doSearch(ctx, deps, scope, in.Query, limit, in.DocIDs, in.Filters)
 	})
 }
 
@@ -469,8 +472,19 @@ func addSearchChunksFromAllKB(server *mcpsdk.Server, deps *toolDeps) {
 // shared by both search_chunks_from_single_kb and search_chunks_from_all_kb.
 func doSearch(
 	ctx context.Context, deps *toolDeps,
-	scope []string, query string, limit int, docIDs []string,
+	scope []string, query string, limit int, docIDs []string, filters *types.CaseFilters,
 ) (*mcpsdk.CallToolResult, any, error) {
+	if filters != nil && !filters.Empty() {
+		caseIDs, err := deps.caseService.FilterKnowledgeIDs(ctx, scope, *filters)
+		if err != nil {
+			return errorResult(fmt.Sprintf("failed to filter Cases: %v", err)), nil, nil
+		}
+		docIDs = intersectKnowledgeIDs(docIDs, caseIDs)
+		if len(docIDs) == 0 {
+			return emptySearchResult(), nil, nil
+		}
+	}
+
 	// Pre-filter: if the caller didn't specify doc_ids, try to match
 	// knowledge items by title/filename so that structured identifiers
 	// (e.g. "70-PE510-16") that live only in document metadata can be
@@ -553,6 +567,48 @@ func doSearch(
 		"results": all,
 		"total":   len(all),
 	}), nil, nil
+}
+
+func intersectKnowledgeIDs(requested, candidates []string) []string {
+	if len(candidates) == 0 {
+		return []string{}
+	}
+	candidateSet := make(map[string]struct{}, len(candidates))
+	for _, id := range candidates {
+		candidateSet[id] = struct{}{}
+	}
+	if len(requested) == 0 {
+		result := make([]string, 0, len(candidates))
+		seen := make(map[string]struct{}, len(candidates))
+		for _, id := range candidates {
+			if id == "" {
+				continue
+			}
+			if _, duplicate := seen[id]; duplicate {
+				continue
+			}
+			seen[id] = struct{}{}
+			result = append(result, id)
+		}
+		return result
+	}
+	result := make([]string, 0, len(requested))
+	seen := make(map[string]struct{}, len(requested))
+	for _, id := range requested {
+		if _, ok := candidateSet[id]; !ok {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func emptySearchResult() *mcpsdk.CallToolResult {
+	return successResult(map[string]any{"results": []any{}, "total": 0})
 }
 
 // ---- agent_list -------------------------------------------------------------

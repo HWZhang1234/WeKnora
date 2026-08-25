@@ -23,6 +23,7 @@ type KnowledgePostProcessService struct {
 	chunkService  interfaces.ChunkService
 	taskEnqueuer  interfaces.TaskEnqueuer
 	pendingRepo   interfaces.TaskPendingOpsRepository
+	caseRepo      interfaces.CaseRepository
 	redisClient   *redis.Client
 	spanTracker   SpanTracker
 }
@@ -33,6 +34,7 @@ func NewKnowledgePostProcessService(
 	chunkService interfaces.ChunkService,
 	taskEnqueuer interfaces.TaskEnqueuer,
 	pendingRepo interfaces.TaskPendingOpsRepository,
+	caseRepo interfaces.CaseRepository,
 	redisClient *redis.Client,
 	spanTracker SpanTracker,
 ) interfaces.TaskHandler {
@@ -42,6 +44,7 @@ func NewKnowledgePostProcessService(
 		chunkService:  chunkService,
 		taskEnqueuer:  taskEnqueuer,
 		pendingRepo:   pendingRepo,
+		caseRepo:      caseRepo,
 		redisClient:   redisClient,
 		spanTracker:   spanTracker,
 	}
@@ -153,7 +156,13 @@ func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Ta
 	//    until wiki generation actually finishes instead of flipping to
 	//    completed while wiki runs minutes later. A wiki op that never
 	//    drains is bounded by the housekeeping finalizing sweep.
-	willSpawnSummary := len(textChunks) > 0
+	willSpawnSummary := len(textChunks) > 0 && knowledge.SummaryStatus != types.SummaryStatusCompleted
+	// Case-sourced knowledge already contains a human/LLM summary — skip generation
+	if willSpawnSummary {
+		if isCase, _ := s.caseRepo.ExistsByKnowledgeID(ctx, payload.KnowledgeID); isCase {
+			willSpawnSummary = false
+		}
+	}
 	willSpawnQuestion := willSpawnSummary && kb.NeedsEmbeddingModel() &&
 		kb.QuestionGenerationConfig != nil && kb.QuestionGenerationConfig.Enabled
 	willSpawnWiki := kb.IndexingStrategy.WikiEnabled && len(textChunks) > 0

@@ -1,3 +1,6 @@
+DROP TABLE IF EXISTS case_change_requests;
+DROP TABLE IF EXISTS case_chipsets;
+DROP TABLE IF EXISTS cases;
 DROP TABLE IF EXISTS tenant_invitations;
 DROP TABLE IF EXISTS user_kb_pins;
 DROP TABLE IF EXISTS user_resource_favorites;

@@ -49,6 +49,7 @@ type RouterParams struct {
 	AgentShareService            interfaces.AgentShareService
 	KBHandler                    *handler.KnowledgeBaseHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
+	CaseHandler                  *handler.CaseHandler
 	TenantHandler                *handler.TenantHandler
 	TenantService                interfaces.TenantService
 	TenantMemberService          interfaces.TenantMemberService
@@ -189,6 +190,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeTagRoutes(v1, params.TagHandler, rbacGuards)
 		RegisterKnowledgeRoutes(v1, params.KnowledgeHandler, rbacGuards)
+		RegisterCaseRoutes(v1, params.CaseHandler, rbacGuards)
 		RegisterFAQRoutes(v1, params.FAQHandler, rbacGuards)
 		RegisterChunkRoutes(v1, params.ChunkHandler, rbacGuards)
 		RegisterSessionRoutes(v1, params.SessionHandler, rbacGuards)
@@ -216,6 +218,17 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	return r
+}
+
+// RegisterCaseRoutes wires Case upserts into the standard Knowledge pipeline.
+func RegisterCaseRoutes(r *gin.RouterGroup, caseHandler *handler.CaseHandler, g *rbacGuards) {
+	cases := r.Group("/knowledge-bases/:id/cases")
+	cases.PUT(
+		"/:case_number",
+		g.OwnedKBOrAdmin(),
+		g.KBAccessWrite("id"),
+		caseHandler.UpsertCase,
+	)
 }
 
 // RegisterChunkerDebugRoutes wires the read-only chunker preview endpoint

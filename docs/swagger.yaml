@@ -3084,6 +3084,36 @@ definitions:
     required:
     - permission
     type: object
+  github_com_Tencent_WeKnora_internal_types.UpsertCasePayload:
+    properties:
+      case_date:
+        type: string
+      case_url:
+        type: string
+      change_request_numbers:
+        items:
+          type: string
+        type: array
+      chipsets:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      extra_attributes:
+        additionalProperties: {}
+        type: object
+      problem_area_1:
+        type: string
+      problem_area_2:
+        type: string
+      problem_area_3:
+        type: string
+      subject:
+        type: string
+      summary:
+        type: string
+    type: object
   github_com_Tencent_WeKnora_internal_types.User:
     properties:
       avatar:
@@ -4233,6 +4263,13 @@ definitions:
         type: string
       task_id:
         type: string
+    type: object
+  internal_handler.NewDatasetAdminRequest:
+    properties:
+      usids:
+        items:
+          type: string
+        type: array
     type: object
   internal_handler.PreviewChunkResult:
     properties:
@@ -7214,6 +7251,71 @@ paths:
       summary: 更新知识库
       tags:
       - 知识库
+  /knowledge-bases/{id}/cases/{case_number}:
+    put:
+      consumes:
+      - application/json
+      description: 按 Case Number 幂等写入结构化 Case 属性，并通过现有 Knowledge/Chunk 流程异步建立检索索引。Comments
+        不应放入请求体。
+      parameters:
+      - description: 知识库 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Case Number
+        in: path
+        name: case_number
+        required: true
+        type: string
+      - description: Case 数据；summary 必填，case_date 使用 YYYY-MM-DD
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.UpsertCasePayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: action 为 created、updated 或 unchanged
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求内容无效
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 无知识库写权限
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识库不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "409":
+          description: Case 已属于其他知识库
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "503":
+          description: 权限依赖服务暂时不可用
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 创建或更新 Case 知识
+      tags:
+      - Case 管理
   /knowledge-bases/{id}/faq/entries:
     delete:
       consumes:
@@ -11000,6 +11102,108 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Replace a KB's whole member roster (admins + normals)
+      tags:
+      - Permission
+  /permissions/new-dataset-admins:
+    get:
+      description: Returns all usids that are allowed to create new datasets.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: List all new-dataset admins
+      tags:
+      - Permission
+    post:
+      consumes:
+      - application/json
+      description: Grant one or more usids the right to create new datasets. Idempotent.
+      parameters:
+      - description: usids to add
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.NewDatasetAdminRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Add new-dataset admin(s)
+      tags:
+      - Permission
+    put:
+      consumes:
+      - application/json
+      description: Atomically replace all new-dataset admins with the given usid list.
+      parameters:
+      - description: complete usid list
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.NewDatasetAdminRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Replace the entire new-dataset admin list
+      tags:
+      - Permission
+  /permissions/new-dataset-admins/{usid}:
+    delete:
+      description: Revoke a usid's right to create new datasets.
+      parameters:
+      - description: usid to remove
+        in: path
+        name: usid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - ApiKeyAuth: []
+      summary: Remove a new-dataset admin
       tags:
       - Permission
   /permissions/searchable-kbs:
