@@ -158,6 +158,53 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		}
 	}
 
+	// usid-level KB permission gate.
+	// Require X-User-Id for all chat requests; synthetic system users (API-Key-only
+	// callers with no X-User-Id) are rejected so every request carries a real usid.
+	// When permService is wired, filter the requested KB list to the usid's permitted
+	// scope. This mirrors what MCP search_chunks does via resolveScope.
+	if h.permService != nil {
+		userID, hasUID := types.UserIDFromContext(ctx)
+		if !hasUID || types.IsSyntheticUserID(userID) {
+			return nil, nil, errors.NewUnauthorizedError("X-User-Id header is required")
+		}
+		// Collect all KB IDs in this request (explicit + agent-resolved later in
+		// service layer).  We can only filter what the caller explicitly named here;
+		// agent-resolved KBs are filtered in resolveKnowledgeBases (service layer).
+		if len(kbIDs) > 0 {
+			allKBs, err := h.knowledgebaseService.ListKnowledgeBases(ctx)
+			if err != nil {
+				logger.Errorf(ctx, "[%s] failed to list KBs for usid scope check: %v", logPrefix, err)
+				return nil, nil, errors.NewInternalServerError("failed to verify knowledge base permissions")
+			}
+			allKBIDs := make([]string, 0, len(allKBs))
+			for _, kb := range allKBs {
+				allKBIDs = append(allKBIDs, kb.ID)
+			}
+			permitted, err := h.permService.GetSearchScope(ctx, userID, allKBIDs)
+			if err != nil {
+				logger.Errorf(ctx, "[%s] GetSearchScope failed for usid=%s: %v", logPrefix, userID, err)
+				return nil, nil, errors.NewInternalServerError("failed to verify knowledge base permissions")
+			}
+			permSet := make(map[string]struct{}, len(permitted))
+			for _, id := range permitted {
+				permSet[id] = struct{}{}
+			}
+			filtered := kbIDs[:0]
+			for _, id := range kbIDs {
+				if _, ok := permSet[id]; ok {
+					filtered = append(filtered, id)
+				} else {
+					logger.Warnf(ctx, "[%s] usid=%s has no permission for KB %s, removing from scope", logPrefix, userID, id)
+				}
+			}
+			kbIDs = filtered
+			if len(kbIDs) == 0 && len(knowledgeIDs) == 0 && customAgent == nil {
+				return nil, nil, errors.NewForbiddenError("access denied: no permitted knowledge bases in the requested scope")
+			}
+		}
+	}
+
 	// Log merge results for debugging
 	logger.Infof(ctx, "[%s] @mention merge: request.KnowledgeBaseIDs=%v, request.MentionedItems=%d, merged kbIDs=%v, merged knowledgeIDs=%v",
 		logPrefix, request.KnowledgeBaseIDs, len(request.MentionedItems), kbIDs, knowledgeIDs)
@@ -548,14 +595,17 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 
 // KnowledgeQA godoc
 // @Summary      知识问答
-// @Description  基于知识库的问答（使用LLM总结），支持SSE流式响应
+// @Description  基于知识库的问答（使用LLM总结），支持SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。
 // @Tags         问答
 // @Accept       json
 // @Produce      text/event-stream
+// @Param        X-User-Id   header    string                   true  "调用方 usid（Qualcomm NTID，如 hanwzhan）"
 // @Param        session_id  path      string                   true  "会话ID"
 // @Param        request     body      CreateKnowledgeQARequest true  "问答请求"
 // @Success      200         {object}  map[string]interface{}   "问答结果（SSE流）"
 // @Failure      400         {object}  errors.AppError          "请求参数错误"
+// @Failure      401         {object}  errors.AppError          "未提供 X-User-Id header"
+// @Failure      403         {object}  errors.AppError          "usid 无权访问所请求的知识库"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /sessions/{session_id}/knowledge-qa [post]
@@ -573,14 +623,17 @@ func (h *Handler) KnowledgeQA(c *gin.Context) {
 
 // AgentQA godoc
 // @Summary      Agent问答
-// @Description  基于Agent的智能问答，支持多轮对话和SSE流式响应
+// @Description  基于Agent的智能问答，支持多轮对话和SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。
 // @Tags         问答
 // @Accept       json
 // @Produce      text/event-stream
+// @Param        X-User-Id   header    string                   true  "调用方 usid（Qualcomm NTID，如 hanwzhan）"
 // @Param        session_id  path      string                   true  "会话ID"
 // @Param        request     body      CreateKnowledgeQARequest true  "问答请求"
 // @Success      200         {object}  map[string]interface{}   "问答结果（SSE流）"
 // @Failure      400         {object}  errors.AppError          "请求参数错误"
+// @Failure      401         {object}  errors.AppError          "未提供 X-User-Id header"
+// @Failure      403         {object}  errors.AppError          "usid 无权访问所请求的知识库"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /sessions/{session_id}/agent-qa [post]

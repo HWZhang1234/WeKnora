@@ -43,6 +43,23 @@ func (s *sessionService) resolveKnowledgeBases(
 		logger.Infof(ctx, "RetrieveKBOnlyWhenMentioned is enabled and no @ mention found, KB retrieval disabled for this request")
 	} else if customAgent != nil {
 		kbIDs = s.resolveKnowledgeBasesFromAgent(ctx, customAgent, req.Session.TenantID)
+
+		// Filter agent-resolved KBs by the usid's permitted scope so that
+		// agents with kb_selection_mode="all" (e.g. builtin-quick-answer) cannot
+		// expose KBs the calling user has no access to.
+		if s.permService != nil && len(kbIDs) > 0 {
+			userID, hasUID := types.UserIDFromContext(ctx)
+			if hasUID && !types.IsSyntheticUserID(userID) {
+				permitted, err := s.permService.GetSearchScope(ctx, userID, kbIDs)
+				if err != nil {
+					logger.Warnf(ctx, "resolveKnowledgeBases: GetSearchScope failed for usid=%s: %v; falling back to empty KB list", userID, err)
+					kbIDs = nil
+				} else {
+					kbIDs = permitted
+					logger.Infof(ctx, "resolveKnowledgeBases: usid=%s permitted %d/%d agent KBs", userID, len(kbIDs), len(permitted))
+				}
+			}
+		}
 	}
 	return kbIDs, knowledgeIDs
 }

@@ -10120,7 +10120,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选",
+                "description": "获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选。API Key 调用时可传 usid 参数按用户过滤。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10160,6 +10160,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "按 Agent 过滤（仅对 IM 会话生效）",
                         "name": "agent_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按用户 ID 过滤（API Key 调用时有效，如 hanwzhan）",
+                        "name": "usid",
                         "in": "query"
                     }
                 ],
@@ -10632,7 +10638,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "基于Agent的智能问答，支持多轮对话和SSE流式响应",
+                "description": "基于Agent的智能问答，支持多轮对话和SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10644,6 +10650,13 @@ const docTemplate = `{
                 ],
                 "summary": "Agent问答",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "调用方 usid（Qualcomm NTID，如 hanwzhan）",
+                        "name": "X-User-Id",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "会话ID",
@@ -10674,6 +10687,18 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
+                    },
+                    "401": {
+                        "description": "未提供 X-User-Id header",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "usid 无权访问所请求的知识库",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
                     }
                 }
             }
@@ -10688,7 +10713,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "基于知识库的问答（使用LLM总结），支持SSE流式响应",
+                "description": "基于知识库的问答（使用LLM总结），支持SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10700,6 +10725,13 @@ const docTemplate = `{
                 ],
                 "summary": "知识问答",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "调用方 usid（Qualcomm NTID，如 hanwzhan）",
+                        "name": "X-User-Id",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "会话ID",
@@ -10727,6 +10759,18 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "未提供 X-User-Id header",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "usid 无权访问所请求的知识库",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }

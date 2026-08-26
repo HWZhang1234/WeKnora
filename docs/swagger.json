@@ -10113,7 +10113,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选",
+                "description": "获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选。API Key 调用时可传 usid 参数按用户过滤。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10153,6 +10153,12 @@
                         "type": "string",
                         "description": "按 Agent 过滤（仅对 IM 会话生效）",
                         "name": "agent_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按用户 ID 过滤（API Key 调用时有效，如 hanwzhan）",
+                        "name": "usid",
                         "in": "query"
                     }
                 ],
@@ -10625,7 +10631,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "基于Agent的智能问答，支持多轮对话和SSE流式响应",
+                "description": "基于Agent的智能问答，支持多轮对话和SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10637,6 +10643,13 @@
                 ],
                 "summary": "Agent问答",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "调用方 usid（Qualcomm NTID，如 hanwzhan）",
+                        "name": "X-User-Id",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "会话ID",
@@ -10667,6 +10680,18 @@
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
+                    },
+                    "401": {
+                        "description": "未提供 X-User-Id header",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "usid 无权访问所请求的知识库",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
                     }
                 }
             }
@@ -10681,7 +10706,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "基于知识库的问答（使用LLM总结），支持SSE流式响应",
+                "description": "基于知识库的问答（使用LLM总结），支持SSE流式响应。必须通过 X-User-Id header 传入调用方的 usid（Qualcomm NTID，不含 @qualcomm.com），系统将仅检索该 usid 有权限的知识库。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10693,6 +10718,13 @@
                 ],
                 "summary": "知识问答",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "调用方 usid（Qualcomm NTID，如 hanwzhan）",
+                        "name": "X-User-Id",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "会话ID",
@@ -10720,6 +10752,18 @@
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "未提供 X-User-Id header",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "usid 无权访问所请求的知识库",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -11368,7 +11412,7 @@
         },
         "/system/admin/tenants/apply-default-storage-quota": {
             "post": {
-                "description": "Reads the current value of `tenant.default_storage_quota_gb`\n(3-tier resolver: DB \u003e ENV \u003e default) and writes that many\nGiB into storage_quota for every row in tenants. Bypasses\nthe per-tenant PUT whitelist, which forbids storage_quota\nedits by Owners. SystemAdmin only.\nIdempotent — running twice with the same setting is a no-op.",
+                "description": "Reads the current value of `tenant.default_storage_quota_gb`\n(3-tier resolver: DB > ENV > default) and writes that many\nGiB into storage_quota for every row in tenants. Bypasses\nthe per-tenant PUT whitelist, which forbids storage_quota\nedits by Owners. SystemAdmin only.\nIdempotent — running twice with the same setting is a no-op.",
                 "produces": [
                     "application/json"
                 ],
@@ -14251,7 +14295,7 @@
                     "type": "string"
                 },
                 "faq_direct_answer_threshold": {
-                    "description": "FAQ direct answer threshold - if similarity \u003e this value, use FAQ answer directly",
+                    "description": "FAQ direct answer threshold - if similarity > this value, use FAQ answer directly",
                     "type": "number"
                 },
                 "faq_priority_enabled": {
@@ -15304,7 +15348,7 @@
                     "type": "string"
                 },
                 "vector_store_id": {
-                    "description": "VectorStoreID references the VectorStore this knowledge base is bound to.\nWhen nil, the KB falls back to the tenant's effective engines derived from\nthe RETRIEVE_DRIVER environment variable (env store flow).\nThis field is set once at creation time and must not be modified afterwards;\nenforcement lives at the GORM layer (`\u003c-:create`) plus the service-layer\nKB update path, which omits this field from its update DTO.",
+                    "description": "VectorStoreID references the VectorStore this knowledge base is bound to.\nWhen nil, the KB falls back to the tenant's effective engines derived from\nthe RETRIEVE_DRIVER environment variable (env store flow).\nThis field is set once at creation time and must not be modified afterwards;\nenforcement lives at the GORM layer (`<-:create`) plus the service-layer\nKB update path, which omits this field from its update DTO.",
                     "type": "string"
                 },
                 "vlm_config": {
@@ -18019,7 +18063,7 @@
                     "type": "integer"
                 },
                 "truncated": {
-                    "description": "true when Returned \u003c Total (after filters)",
+                    "description": "true when Returned < Total (after filters)",
                     "type": "boolean"
                 }
             }
@@ -18233,7 +18277,7 @@
                     "type": "string"
                 },
                 "source_refs": {
-                    "description": "References to source knowledge IDs that contributed to this page.\nFormat matches the legacy \"\u003cknowledge_id\u003e|\u003cdoc_title\u003e\" convention used\nacross the ingest pipeline, so retract / display code can split on `|`\nto recover the title. Document-level granularity.",
+                    "description": "References to source knowledge IDs that contributed to this page.\nFormat matches the legacy \"<knowledge_id>|<doc_title>\" convention used\nacross the ingest pipeline, so retract / display code can split on `|`\nto recover the title. Document-level granularity.",
                     "type": "array",
                     "items": {
                         "type": "string"

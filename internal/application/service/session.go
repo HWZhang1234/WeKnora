@@ -47,6 +47,7 @@ type sessionService struct {
 	webSearchProviderRepo interfaces.WebSearchProviderRepository // Repository for web search provider entities
 	kbShareService        interfaces.KBShareService              // Service for KB sharing operations
 	memoryService         interfaces.MemoryService               // Service for memory operations
+	permService           interfaces.PermissionService           // Service for usid-level KB permission control
 }
 
 // NewSessionService creates a new session service instance with all required dependencies
@@ -64,6 +65,7 @@ func NewSessionService(cfg *config.Config,
 	webSearchProviderRepo interfaces.WebSearchProviderRepository,
 	kbShareService interfaces.KBShareService,
 	memoryService interfaces.MemoryService,
+	permService interfaces.PermissionService,
 ) interfaces.SessionService {
 	return &sessionService{
 		cfg:                   cfg,
@@ -80,6 +82,7 @@ func NewSessionService(cfg *config.Config,
 		webSearchProviderRepo: webSearchProviderRepo,
 		kbShareService:        kbShareService,
 		memoryService:         memoryService,
+		permService:           permService,
 	}
 }
 
@@ -186,8 +189,22 @@ func (s *sessionService) ListSessions(
 		query = &types.SessionListQuery{}
 	}
 	query.TenantID = types.MustTenantIDFromContext(ctx)
-	if uid, ok := types.UserIDFromContext(ctx); ok {
-		query.UserID = uid
+	// Priority: caller-supplied ?usid= > authenticated browser/JWT user.
+	// API-Key callers without X-User-Id land a synthetic system-<id> in ctx;
+	// treat that as "no real user" so we don't leak all tenant sessions.
+	if query.UserID == "" {
+		if uid, ok := types.UserIDFromContext(ctx); ok && !types.IsSyntheticUserID(uid) {
+			query.UserID = uid
+		}
+	}
+	// API-Key call with no usid supplied: return empty rather than exposing
+	// every session in the tenant.
+	if query.UserID == "" {
+		uid, _ := types.UserIDFromContext(ctx)
+		if types.IsSyntheticUserID(uid) {
+			pg := &types.Pagination{Page: query.Page, PageSize: query.PageSize}
+			return types.NewPageResult(0, pg, []*types.SessionListItem{}), nil
+		}
 	}
 
 	items, total, err := s.sessionRepo.QueryPaged(ctx, query)

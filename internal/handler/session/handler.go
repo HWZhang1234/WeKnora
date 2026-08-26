@@ -28,6 +28,7 @@ type Handler struct {
 	fileService          interfaces.FileService          // Service for file storage (image uploads)
 	modelService         interfaces.ModelService         // Service for model management (VLM access)
 	userService          interfaces.UserService          // Service for resolving per-user preferences (e.g. enable_memory default)
+	permService          interfaces.PermissionService    // Service for usid-level KB permission control
 	attachmentProcessor  *AttachmentProcessor            // Processor for file attachments
 }
 
@@ -45,6 +46,7 @@ func NewHandler(
 	fileService interfaces.FileService,
 	modelService interfaces.ModelService,
 	userService interfaces.UserService,
+	permService interfaces.PermissionService,
 	documentReader interfaces.DocumentReader,
 	imageResolver *docparser.ImageResolver,
 ) *Handler {
@@ -61,6 +63,7 @@ func NewHandler(
 		fileService:          fileService,
 		modelService:         modelService,
 		userService:          userService,
+		permService:          permService,
 		attachmentProcessor: NewAttachmentProcessor(
 			fileService,
 			documentReader,
@@ -187,7 +190,7 @@ func (h *Handler) GetSession(c *gin.Context) {
 
 // GetSessionsByTenant godoc
 // @Summary      获取会话列表
-// @Description  获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选
+// @Description  获取当前租户的会话列表，支持分页、关键字搜索、按来源/Agent 筛选。API Key 调用时可传 usid 参数按用户过滤。
 // @Tags         会话
 // @Accept       json
 // @Produce      json
@@ -196,6 +199,7 @@ func (h *Handler) GetSession(c *gin.Context) {
 // @Param        keyword    query     string  false  "标题模糊搜索"
 // @Param        source     query     string  false  "来源过滤：web / feishu / wechat / slack / ..."
 // @Param        agent_id   query     string  false  "按 Agent 过滤（仅对 IM 会话生效）"
+// @Param        usid       query     string  false  "按用户 ID 过滤（API Key 调用时有效，如 hanwzhan）"
 // @Success      200        {object}  map[string]interface{}  "会话列表"
 // @Failure      400        {object}  errors.AppError         "请求参数错误"
 // @Security     Bearer
@@ -219,6 +223,7 @@ func (h *Handler) GetSessionsByTenant(c *gin.Context) {
 		Keyword:  c.Query("keyword"),
 		Source:   c.Query("source"),
 		AgentID:  c.Query("agent_id"),
+		UserID:   c.Query("usid"),
 		Page:     pagination.Page,
 		PageSize: pagination.PageSize,
 	})
