@@ -10,6 +10,7 @@ import (
 type CaseService interface {
 	UpsertCase(ctx context.Context, kbID, caseNumber string, payload *types.UpsertCasePayload) (*types.UpsertCaseResult, error)
 	FilterKnowledgeIDs(ctx context.Context, kbIDs []string, filters types.CaseFilters) ([]string, error)
+	GetCasesByKnowledgeIDs(ctx context.Context, knowledgeIDs []string) ([]*types.Case, error)
 }
 
 // CaseRepository persists Case attributes separately from vector-store data.
@@ -19,4 +20,5 @@ type CaseRepository interface {
 	Create(ctx context.Context, item *types.Case) error
 	Update(ctx context.Context, item *types.Case, chipsets, changeRequests []string) error
 	FilterKnowledgeIDs(ctx context.Context, tenantID uint64, kbIDs []string, filters types.CaseFilters) ([]string, error)
+	ListByKnowledgeIDs(ctx context.Context, tenantID uint64, knowledgeIDs []string) ([]*types.Case, error)
 }

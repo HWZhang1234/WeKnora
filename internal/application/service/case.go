@@ -152,6 +152,17 @@ func (s *caseService) FilterKnowledgeIDs(
 	return s.repo.FilterKnowledgeIDs(ctx, tenantID, kbIDs, filters)
 }
 
+func (s *caseService) GetCasesByKnowledgeIDs(
+	ctx context.Context,
+	knowledgeIDs []string,
+) ([]*types.Case, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrInvalidTenantID
+	}
+	return s.repo.ListByKnowledgeIDs(ctx, tenantID, knowledgeIDs)
+}
+
 func isCaseKnowledgePublished(parseStatus string) bool {
 	switch parseStatus {
 	case types.ParseStatusPending,

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [
+      ".claude/skills",
+      "C:\\Users\\hanwzhan\\.claude\\skills"
+    ]
+  },
+  "mcp": {
+    "teams": {
+      "type": "remote",
+      "url": "https://qgenie-mcphub.qualcomm.com/connect/teams/mcp"
+    },
+    "local_knowledge": {
+      "type": "remote",
+      "url": "http://127.0.0.1:17982/mcp"
+    },
+    "cloud_knowledge": {
+      "type": "remote",
+      "url": "https://whui-gv.qualcomm.com:8320/mcp",
+      "headers": {
+        "X-API-Key": "{env:CEBOT_CLOUD_KNOWLEDGE_API_KEY}",
+        "Authorization": "Bearer {env:CEBOT_CLOUD_KNOWLEDGE_API_KEY}",
+        "X-User-Id": "hanwzhan"
+      }
+    },
+    "outlook": {
+      "type": "remote",
+      "url": "https://qgenie-mcphub.qualcomm.com/connect/outlook/mcp"
+    },
+    "cebot_desktop": {
+      "type": "remote",
+      "url": "http://127.0.0.1:17980/desktop-mcp",
+      "headers": {
+        "X-CEBot-Automation-Session": "${CEBOT_DESKTOP_AUTOMATION_SESSION}",
+        "X-CEBot-Automation-Token": "${CEBOT_DESKTOP_AUTOMATION_TOKEN}"
+      }
+    }
+  },
+  "agent": {
+    "cebot-auto": {
+      "description": "CEBot Auto mode: build agent with OpenCode permissions allowed by default.",
+      "mode": "primary",
+      "permission": {
+        "*": "allow",
+        "external_directory": {
+          "*": "allow"
+        },
+        "teams_*": "allow",
+        "outlook_*": "allow"
+      }
+    }
+  },
+  "permission": {
+    "teams_*": "allow",
+    "outlook_*": "allow"
+  }
+}

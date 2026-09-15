@@ -91,7 +91,23 @@ func (d *toolDeps) resolveScope(
 		}
 		return filtered, nil
 	}
-	return scope, nil
+
+	// Filter scope against allKBIDs to remove stale ACL/common_kb references
+	// that point to soft-deleted KBs. Without this, scope[0] may be a ghost ID
+	// that passes GetSearchScope but is excluded by GORM's soft-delete filter in
+	// GetKnowledgeBaseByIDs, causing pickPrimary to return nil → "knowledge base
+	// not found" (error 1003).
+	existing := make(map[string]struct{}, len(allKBIDs))
+	for _, id := range allKBIDs {
+		existing[id] = struct{}{}
+	}
+	live := scope[:0]
+	for _, id := range scope {
+		if _, ok := existing[id]; ok {
+			live = append(live, id)
+		}
+	}
+	return live, nil
 }
 
 // registerTools registers MCP tools on the given server.
@@ -103,6 +119,7 @@ func registerTools(server *mcpsdk.Server, deps *toolDeps) {
 	// addDocDownload(server, deps)
 	addSearchChunksFromSingleKB(server, deps)
 	addSearchChunksFromAllKB(server, deps)
+	addFindSimilarCases(server, deps)
 	// addChat(server, deps)
 	// addAgentList(server, deps)
 	// addAgentInvoke(server, deps)
@@ -737,4 +754,278 @@ func extractDocIdentifiers(query string) []string {
 		return len(results[i]) > len(results[j])
 	})
 	return results
+}
+
+// ---- find_similar_cases -----------------------------------------------------
+
+type findSimilarCasesInput struct {
+	CaseNumber string `json:"case_number,omitempty" jsonschema:"optional; source case number to find similar cases for (e.g. '12345678'). The case's subject and description are used as the search query. Takes priority over query when both are provided"`
+	Query      string `json:"query,omitempty" jsonschema:"optional; free-text description of the issue or symptom to search for similar historical cases (e.g. 'FBRX calibration failure on SM8650'). Required when case_number is not provided"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"max number of similar cases to return (1..20); defaults to 5"`
+}
+
+func addFindSimilarCases(server *mcpsdk.Server, deps *toolDeps) {
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "find_similar_cases",
+		Description: `Find historical support cases that are semantically similar to a given case or issue description, to assist in troubleshooting and resolution. Searches only the Cases knowledge base.
+
+WHEN TO USE:
+- Finding past cases similar to a current issue ("Find similar cases for case 12345678")
+- Checking whether an issue has occurred before ("Has this problem happened before?")
+- Searching for historical resolutions or workarounds by symptom ("Find similar cases about FBRX calibration failure")
+- Identifying recurring patterns across historical cases
+
+HOW IT WORKS:
+- If case_number is provided: looks up that case's subject and description, then searches for semantically similar cases
+- If only query is provided: uses the query directly as the search input
+- Results are deduplicated by case and include: case_number, subject, problem_area_1/2/3, chipsets, case_url, problem_summary (what the customer experienced), solution_summary (how it was resolved)
+
+INPUTS: provide case_number OR query (or both; case_number takes priority for query construction).
+
+OUTPUT FORMAT: For each result, always present ALL of the following fields to the user:
+- Case number and subject (as a clickable link using case_url if available)
+- Chipset and problem areas
+- problem_summary: the full problem description — show this completely, do not omit or truncate
+- solution_summary: the full resolution — show this completely, do not omit or truncate
+Present each case as a clearly separated section, not just a table row. A table is acceptable for the overview but each case's problem_summary and solution_summary must be shown in full below the table.`,
+		Annotations: &mcpsdk.ToolAnnotations{
+			Title:           "Find Similar Cases",
+			DestructiveHint: bptr(false),
+			ReadOnlyHint:    true,
+			IdempotentHint:  true,
+			OpenWorldHint:   bptr(false),
+		},
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, in findSimilarCasesInput) (*mcpsdk.CallToolResult, any, error) {
+		if in.CaseNumber == "" && in.Query == "" {
+			return errorResult("either case_number or query is required"), nil, nil
+		}
+		ctx = deps.enrichCtx(ctx)
+
+		// Find the Cases KB by name within this tenant.
+		allKBs, err := deps.kbService.ListKnowledgeBases(ctx)
+		if err != nil {
+			return errorResult(fmt.Sprintf("failed to list knowledge bases: %v", err)), nil, nil
+		}
+		var casesKBID string
+		for _, kb := range allKBs {
+			if strings.EqualFold(kb.Name, "Cases") {
+				casesKBID = kb.ID
+				break
+			}
+		}
+		if casesKBID == "" {
+			return errorResult("Cases knowledge base not found in this tenant"), nil, nil
+		}
+		scope := []string{casesKBID}
+
+		// Build the search query.
+		searchQuery := in.Query
+		var excludeKnowledgeID string
+
+		if in.CaseNumber != "" {
+			caseDocIDs, ferr := deps.caseService.FilterKnowledgeIDs(ctx, scope, types.CaseFilters{
+				CaseNumber: in.CaseNumber,
+			})
+			if ferr != nil {
+				return errorResult(fmt.Sprintf("failed to look up case %s: %v", in.CaseNumber, ferr)), nil, nil
+			}
+			if len(caseDocIDs) > 0 {
+				excludeKnowledgeID = caseDocIDs[0]
+				knowledge, kerr := deps.knowledgeService.GetKnowledgeByID(ctx, excludeKnowledgeID)
+				if kerr == nil && knowledge != nil {
+					parts := []string{}
+					if knowledge.Title != "" {
+						parts = append(parts, knowledge.Title)
+					}
+					if knowledge.Description != "" {
+						parts = append(parts, knowledge.Description)
+					}
+					if len(parts) > 0 {
+						searchQuery = strings.Join(parts, " ")
+					}
+				}
+			}
+			if searchQuery == "" {
+				return errorResult(fmt.Sprintf("case %s not found", in.CaseNumber)), nil, nil
+			}
+		}
+
+		limit := in.Limit
+		if limit <= 0 || limit > 20 {
+			limit = 5
+		}
+
+		// Search for chunks in the Cases KB. Fetch more than needed to allow for
+		// deduplication and source-case exclusion.
+		fetchLimit := (limit + 1) * 5
+		params := types.SearchParams{
+			QueryText:             searchQuery,
+			MatchCount:            fetchLimit,
+			KnowledgeBaseIDs:      scope,
+			SkipContextEnrichment: true,
+		}
+		hits, serr := deps.kbService.HybridSearch(ctx, casesKBID, params)
+		if serr != nil {
+			return errorResult(fmt.Sprintf("search failed: %v", serr)), nil, nil
+		}
+
+		// Deduplicate by knowledge_id. For each case keep the chunk that is both
+		// high-scoring and content-rich. Pure search score can favour short
+		// boilerplate chunks (e.g. "### Related Change Requests\n* None") that
+		// are semantically close to many queries. We multiply the search score
+		// by a content-quality factor that penalises short or boilerplate-only
+		// chunks so that Summary / Solution / Key-Steps chunks win.
+		type deduped struct {
+			knowledgeID    string
+			knowledgeTitle string
+			content        string
+			score          float64
+			quality        float64 // composite score used for selection
+		}
+		seen := make(map[string]*deduped, len(hits))
+		order := make([]string, 0, len(hits))
+		for _, r := range hits {
+			if r.KnowledgeID == excludeKnowledgeID {
+				continue
+			}
+			content := r.Content
+			if r.ImageInfo != "" {
+				content = searchutil.EnrichContentWithImageInfo(content, r.ImageInfo)
+			}
+			quality := r.Score * chunkContentQuality(content)
+			if existing, ok := seen[r.KnowledgeID]; ok {
+				if quality > existing.quality {
+					existing.content = content
+					existing.score = r.Score
+					existing.quality = quality
+				}
+			} else {
+				seen[r.KnowledgeID] = &deduped{
+					knowledgeID:    r.KnowledgeID,
+					knowledgeTitle: r.KnowledgeTitle,
+					content:        content,
+					score:          r.Score,
+					quality:        quality,
+				}
+				order = append(order, r.KnowledgeID)
+			}
+		}
+
+		// Take up to limit unique cases.
+		if len(order) > limit {
+			order = order[:limit]
+		}
+
+		// Batch-fetch structured case metadata (case_number, subject, chipsets, url, …).
+		caseByKnowledgeID := make(map[string]*types.Case, len(order))
+		if len(order) > 0 {
+			cases, cerr := deps.caseService.GetCasesByKnowledgeIDs(ctx, order)
+			if cerr == nil {
+				for _, c := range cases {
+					caseByKnowledgeID[c.KnowledgeID] = c
+				}
+			}
+		}
+
+		type caseResult struct {
+			CaseNumber      string   `json:"case_number,omitempty"`
+			Subject         string   `json:"subject,omitempty"`
+			ProblemArea1    string   `json:"problem_area_1,omitempty"`
+			ProblemArea2    string   `json:"problem_area_2,omitempty"`
+			ProblemArea3    string   `json:"problem_area_3,omitempty"`
+			Chipsets        []string `json:"chipsets,omitempty"`
+			CaseURL         string   `json:"case_url,omitempty"`
+			ProblemSummary  string   `json:"problem_summary,omitempty"`
+			SolutionSummary string   `json:"solution_summary,omitempty"`
+			Score           float64  `json:"score"`
+		}
+
+		results := make([]caseResult, 0, len(order))
+		for _, knID := range order {
+			d := seen[knID]
+			r := caseResult{Score: d.score}
+
+			if c, ok := caseByKnowledgeID[knID]; ok {
+				r.CaseNumber = c.CaseNumber
+				r.Subject = c.Subject
+				r.ProblemArea1 = c.ProblemArea1
+				r.ProblemArea2 = c.ProblemArea2
+				r.ProblemArea3 = c.ProblemArea3
+				r.CaseURL = c.CaseURL
+				if len(c.Chipsets) > 0 {
+					chips := make([]string, 0, len(c.Chipsets))
+					for _, ch := range c.Chipsets {
+						chips = append(chips, ch.Chipset)
+					}
+					r.Chipsets = chips
+				}
+			}
+
+			// Fetch all chunks for this case and extract the Overview and Solution
+			// sections directly by chunk content rather than relying on search score.
+			// This guarantees we always return the most informative sections.
+			chunks, cerr := deps.chunkService.ListChunksByKnowledgeID(ctx, knID)
+			if cerr == nil {
+				sort.Slice(chunks, func(i, j int) bool {
+					return chunks[i].ChunkIndex < chunks[j].ChunkIndex
+				})
+				for _, ch := range chunks {
+					lower := strings.ToLower(ch.Content)
+					if r.ProblemSummary == "" &&
+						(strings.Contains(lower, "case overview") || strings.Contains(lower, "description")) {
+						r.ProblemSummary = strings.TrimSpace(ch.Content)
+					}
+					if r.SolutionSummary == "" &&
+						(strings.Contains(lower, "proposed final solution") || strings.Contains(lower, "key steps to solve")) {
+						r.SolutionSummary = strings.TrimSpace(ch.Content)
+					}
+					if r.ProblemSummary != "" && r.SolutionSummary != "" {
+						break
+					}
+				}
+			}
+
+			results = append(results, r)
+		}
+
+		return successResult(map[string]any{
+			"results": results,
+			"total":   len(results),
+		}), nil, nil
+	})
+}
+
+func chunkContentQuality(content string) float64 {
+	trimmed := strings.TrimSpace(content)
+	length := len(trimmed)
+	if length < 80 {
+		return 0.1
+	}
+	boilerplate := []string{
+		"Related Change Requests",
+		"None identified",
+		"None reported",
+		"None mentioned",
+		"## Case Information",
+	}
+	lower := strings.ToLower(trimmed)
+	for _, pat := range boilerplate {
+		if strings.Contains(lower, strings.ToLower(pat)) && length < 300 {
+			return 0.2
+		}
+	}
+	reward := 1.0
+	if strings.Contains(lower, "proposed final solution") ||
+		strings.Contains(lower, "key steps to solve") ||
+		strings.Contains(lower, "case overview") ||
+		strings.Contains(lower, "root cause") {
+		reward = 1.5
+	}
+	lengthBonus := 1.0
+	if length > 500 {
+		lengthBonus = 1.2
+	} else if length > 200 {
+		lengthBonus = 1.1
+	}
+	return min(reward*lengthBonus, 2.0)
 }

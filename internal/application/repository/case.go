@@ -144,6 +144,25 @@ func (r *caseRepository) FilterKnowledgeIDs(
 	return ids, nil
 }
 
+func (r *caseRepository) ListByKnowledgeIDs(
+	ctx context.Context,
+	tenantID uint64,
+	knowledgeIDs []string,
+) ([]*types.Case, error) {
+	if len(knowledgeIDs) == 0 {
+		return nil, nil
+	}
+	var items []*types.Case
+	err := r.db.WithContext(ctx).
+		Preload("Chipsets").
+		Where("tenant_id = ? AND knowledge_id IN ?", tenantID, knowledgeIDs).
+		Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func cleanFilterValues(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
