@@ -579,12 +579,12 @@ func (t *DataAnalysisTool) LoadFromKnowledge(ctx context.Context, knowledge *typ
 	switch fileType {
 	case "csv":
 		return t.LoadFromCSV(ctx, localPath, tableName)
-	case "xlsx", "xls":
+	case "xlsx", "xls", "xlsm":
 		return t.LoadFromExcel(ctx, localPath, tableName)
 	default:
 		logger.Warnf(ctx, "[Tool][DataAnalysis] Unsupported file type '%s' for knowledge '%s' in session %s",
 			fileType, knowledge.ID, t.sessionID)
-		return nil, fmt.Errorf("unsupported file type: %s (supported types: csv, xlsx, xls)", fileType)
+		return nil, fmt.Errorf("unsupported file type: %s (supported types: csv, xlsx, xls, xlsm)", fileType)
 	}
 }
 

@@ -53,7 +53,7 @@ const fileTypeMap: Record<string, typeof previewType.value> = {};
 ['docx'].forEach(t => fileTypeMap[t] = 'docx');
 ['pptx', 'ppt'].forEach(t => fileTypeMap[t] = 'pptx');
 ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg'].forEach(t => fileTypeMap[t] = 'image');
-['xlsx', 'xls', 'csv'].forEach(t => fileTypeMap[t] = 'excel');
+['xlsx', 'xls', 'xlsm', 'csv'].forEach(t => fileTypeMap[t] = 'excel');
 ['md', 'markdown'].forEach(t => fileTypeMap[t] = 'markdown');
 ['txt', 'json', 'xml', 'html', 'css', 'js', 'ts', 'py', 'java', 'go',
  'cpp', 'c', 'h', 'sh', 'yaml', 'yml', 'ini', 'conf', 'log', 'sql', 'rs', 'rb', 'php',
@@ -68,6 +68,7 @@ const mimeTypeMap: Record<string, string> = {
   ppt: 'application/vnd.ms-powerpoint',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xls: 'application/vnd.ms-excel',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
   csv: 'text/csv',
   jpg: 'image/jpeg', jpeg: 'image/jpeg',
   png: 'image/png', gif: 'image/gif', bmp: 'image/bmp',

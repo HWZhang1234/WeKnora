@@ -125,6 +125,7 @@ builtin_agents:
       supported_file_types:
         - "csv"
         - "xlsx"
+        - "xlsm"
       allowed_tools:
         - "data_schema"
         - "data_analysis"
